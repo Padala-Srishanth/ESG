@@ -1,0 +1,50 @@
+======================================================================
+ESG CLAIM EXTRACTION REPORT
+======================================================================
+
+Total claims extracted: 271
+
+--- Claims by ESG Pillar ---
+  Environmental       :  203 (74.9%)
+  Governance          :   47 (17.3%)
+  Social              :   21 (7.7%)
+
+--- Claims by Type ---
+  performance         :  146 (53.9%)
+  credential          :  125 (46.1%)
+
+--- Temporal Orientation ---
+  unspecified         :  265 (97.8%)
+  past                :    3 (1.1%)
+  future              :    3 (1.1%)
+
+--- Claim Strength Statistics ---
+  Mean:   0.0268
+  Median: 0.0000
+  Std:    0.0676
+  Min:    0.0000
+  Max:    0.2000
+
+--- Top 5 Strongest Claims ---
+  [Environmental] (0.20) EASTMAN CHEMICAL COMPANY
+    "It serves transportation, personal care, wellness, food, feed, agriculture, building and construction, water treatment, ..."
+  [Environmental] (0.20) WASTE MANAGEMENT, INC.
+    "Waste Management, inc. was incorporated in 1987 and is headquartered in Houston, Texas...."
+  [Environmental] (0.20) TYSON FOODS, INC.
+    "It also manufactures and markets frozen and refrigerated food products, including ready-to-eat sandwiches, flame-grilled..."
+  [Governance] (0.20) THE TRAVELERS COMPANIES, INC.
+    "The Bond & Specialty Insurance segment provides surety, fidelity, management and professional liability, and other prope..."
+  [Environmental] (0.20) THE ESTEE LAUDER COMPANIES INC. CLASS A
+    "The company sells its products through department stores, specialty-multi retailers, upscale perfumeries and pharmacies,..."
+
+--- Top 5 Weakest Claims (Potential Greenwashing) ---
+  [Environmental] (0.00) ZOETIS INC.
+    "The company commercializes products primarily across species, including livestock, such as cattle, swine, poultry, fish,..."
+  [Environmental] (0.00) XCEL ENERGY, INC.
+    "The company generates electricity through wind, nuclear, hydroelectric, biomass, and solar energy sources, as well as co..."
+  [Governance] (0.00) WEYERHAEUSER COMPANY
+    "We manage these timberlands on a sustainable basis in compliance with internationally recognized forestry standards...."
+  [Environmental] (0.00) WEC ENERGY GROUP, INC.
+    "WEC Energy Group, inc., through its subsidiaries, provides regulated natural gas and electricity, and renewable and nonr..."
+  [Environmental] (0.00) WEC ENERGY GROUP, INC.
+    "The company generates and distributes electricity from coal, natural gas, oil, and nuclear, as well as renewable energy ..."
