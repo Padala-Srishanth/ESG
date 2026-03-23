@@ -2,7 +2,6 @@
 ================================================================================
 FEATURE ENGINEERING - CATEGORICAL FEATURES MODULE
 ================================================================================
-Author  : ML Engineering Scientist (20+ years industry experience)
 Project : ESG Greenwashing Detection via NLP & Machine Learning
 Purpose : Transform categorical variables (sector, industry, risk levels) into
           ML-ready encodings using multiple strategies: ordinal, frequency,
