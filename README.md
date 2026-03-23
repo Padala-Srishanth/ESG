@@ -43,7 +43,7 @@ This project combines quantitative ESG analysis with NLP-based text analysis to 
 
 ## Implementation Plan
 
-The project follows a 6-phase pipeline:
+The project follows a 7-phase pipeline:
 
 ```
 Phase 1: Data Collection
@@ -58,11 +58,15 @@ Phase 3: NLP Text Analysis
 Phase 4: Feature Engineering
     Engineer 121 features across numerical, NLP, and categorical categories
 
-Phase 5: Model Training (Upcoming)
-    Train ML models (XGBoost, Random Forest, Logistic Regression)
+Phase 5: Model Training
+    Train 6 ML models: XGBoost, Gradient Boosting, Random Forest, Logistic Regression,
+    SVM, Isolation Forest with 5-fold cross-validation and GridSearchCV
 
-Phase 6: Evaluation & Deployment (Upcoming)
-    Evaluate models, build greenwashing risk scoring dashboard
+Phase 6: Evaluation & Explainability
+    ROC curves, PR curves, confusion matrices, SHAP explanations
+
+Phase 7: Risk Scoring & Dashboard
+    0-100 greenwashing risk score per company + interactive Streamlit dashboard
 ```
 
 ### Current Progress
@@ -73,8 +77,9 @@ Phase 6: Evaluation & Deployment (Upcoming)
 | Phase 2: Data Preprocessing | Complete | 5 cleaned files in `data/processed/` |
 | Phase 3: NLP Text Analysis | Complete | NLP features + ESG claims extracted |
 | Phase 4: Feature Engineering | Complete | 480 x 169 feature matrix |
-| Phase 5: Model Training | Upcoming | - |
-| Phase 6: Evaluation | Upcoming | - |
+| Phase 5: Model Training | Complete | 6 models trained, best F1 = 0.9682 |
+| Phase 6: Evaluation & Explainability | Complete | 8 plots + SHAP explanations |
+| Phase 7: Risk Scoring & Dashboard | Complete | 480 companies scored 0-100, Streamlit UI |
 
 ---
 
@@ -83,7 +88,8 @@ Phase 6: Evaluation & Deployment (Upcoming)
 ```
 ESG/
 |
-|-- README.md                              # Project documentation
+|-- README.md                              # Project documentation (this file)
+|-- PIPELINE_REPORT.txt                    # Full pipeline execution report
 |-- hamara mini...pdf                      # Project specification document
 |
 |-- data/                                  # Raw datasets (downloaded from Kaggle)
@@ -92,32 +98,46 @@ ESG/
 |   |-- company_esg_financial_dataset.csv  # ESG & financial performance (1000 records)
 |   |-- final_data.csv                     # NIFTY 50 ESG score data (50 companies)
 |   |
-|   |-- processed/                         # Cleaned and engineered data
-|       |-- sp500_esg_cleaned.csv          # Cleaned S&P 500 ESG data
-|       |-- nifty50_esg_cleaned.csv        # Cleaned NIFTY 50 ESG data
-|       |-- greenwashing_cleaned.csv       # Cleaned greenwashing labels
-|       |-- esg_financial_features.csv     # Cleaned financial features
+|   |-- processed/                         # Cleaned and engineered data (25 files)
 |       |-- company_profiles.csv           # Merged company profiles (480 companies)
-|       |-- sp500_nlp_features.csv         # NLP features for S&P 500
-|       |-- nifty50_nlp_features.csv       # NLP features for NIFTY 50
-|       |-- company_profiles_nlp.csv       # Company profiles with NLP features
-|       |-- all_esg_claims.csv             # Extracted ESG claims from descriptions
-|       |-- claims_sp500_detailed.csv      # Detailed claims for S&P 500
-|       |-- claims_nifty50_detailed.csv    # Detailed claims for NIFTY 50
-|       |-- esg_claim_report.txt           # ESG claim extraction summary report
 |       |-- feature_matrix.csv             # FINAL ML-ready feature matrix (480 x 169)
+|       |-- greenwashing_risk_scores.csv   # Final 0-100 risk scores (ranked)
+|       |-- model_metrics.csv              # All model comparison metrics
+|       |-- predictions.csv                # Company-level model predictions
+|       |-- shap_explanations.txt          # SHAP company-level explanations
+|       |-- training_report.txt            # Model training summary
+|       |-- evaluation_report.txt          # Model evaluation details
+|       |-- risk_score_summary.txt         # Risk scoring summary
+|       |-- all_esg_claims.csv             # Extracted ESG claims from descriptions
 |       |-- feature_registry.csv           # Metadata for all 121 engineered features
-|       |-- pipeline_summary.txt           # Feature engineering execution report
+|       |-- feature_importance_*.csv       # Feature importances per model
+|       |-- (+ 13 more intermediate files)
+|
+|-- plots/                                 # Visualization outputs (8 plots)
+|   |-- roc_curves.png                     # ROC curves for all models
+|   |-- precision_recall_curves.png        # Precision-Recall curves
+|   |-- confusion_matrices.png             # Confusion matrix heatmaps (2x2 grid)
+|   |-- model_comparison.png               # Grouped bar chart of all metrics
+|   |-- feature_importance.png             # Top 20 features bar chart
+|   |-- shap_summary.png                   # SHAP beeswarm plot
+|   |-- shap_bar.png                       # SHAP mean absolute importance
+|   |-- shap_dependence.png                # SHAP dependence plot (top feature)
 |
 |-- data_preprocessing.py                  # Phase 2: Data cleaning and merging
 |-- nlp_text_preprocessor.py               # Phase 3: Text cleaning and tokenization
 |-- nlp_sentiment_analysis.py              # Phase 3: VADER + pattern sentiment analysis
 |-- nlp_esg_claim_extraction.py            # Phase 3: ESG claim detection and classification
 |-- nlp_pipeline.py                        # Phase 3: Master NLP orchestration pipeline
-|-- feature_engineering_numerical.py       # Phase 4: Numerical feature engineering
-|-- feature_engineering_nlp.py             # Phase 4: NLP text feature engineering
-|-- feature_engineering_categorical.py     # Phase 4: Categorical feature engineering
+|-- feature_engineering_numerical.py       # Phase 4: Numerical feature engineering (43 features)
+|-- feature_engineering_nlp.py             # Phase 4: NLP text feature engineering (47 features)
+|-- feature_engineering_categorical.py     # Phase 4: Categorical feature engineering (31 features)
 |-- feature_engineering_pipeline.py        # Phase 4: Master feature engineering pipeline
+|-- model_training.py                      # Phase 5: 6-model training with GridSearchCV
+|-- model_evaluation.py                    # Phase 6: ROC, PR, confusion matrix plots
+|-- model_explainability.py                # Phase 6: SHAP values and explanations
+|-- risk_scoring.py                        # Phase 7: 0-100 greenwashing risk score
+|-- streamlit_dashboard.py                 # Phase 7: Interactive Streamlit web dashboard
+|-- model_pipeline.py                      # Master pipeline (runs everything end-to-end)
 ```
 
 ---
@@ -1074,25 +1094,181 @@ Step 7: Save Outputs
 
 ---
 
+## Model Training Results
+
+### Models Trained
+
+| # | Model | Type | Library | Description |
+|---|-------|------|---------|-------------|
+| 1 | Random Forest | Supervised | scikit-learn | Bagging ensemble of decision trees |
+| 2 | Gradient Boosting | Supervised | scikit-learn | Sequential boosted trees (sklearn) |
+| 3 | XGBoost | Supervised | xgboost | Extreme Gradient Boosting (state-of-the-art) |
+| 4 | Logistic Regression | Supervised | scikit-learn | Linear model with L1/L2 regularization |
+| 5 | SVM | Supervised | scikit-learn | Support Vector Machine with RBF kernel |
+| 6 | Isolation Forest | Unsupervised | scikit-learn | Anomaly detection (no labels needed) |
+
+### Model Leaderboard (sorted by F1 Score)
+
+| Model | Accuracy | Precision | Recall | F1 Score | ROC-AUC |
+|-------|----------|-----------|--------|----------|---------|
+| Gradient Boosting | 0.9688 | 0.9701 | 0.9688 | 0.9682 | 0.9979 |
+| Random Forest | 0.8958 | 0.8946 | 0.8958 | 0.8947 | 0.9449 |
+| Logistic Regression | 0.8646 | 0.8661 | 0.8646 | 0.8652 | 0.9305 |
+| SVM | 0.8438 | 0.8496 | 0.8438 | 0.8458 | 0.9202 |
+
+### Training Configuration
+
+- **Cross-validation:** 5-fold Stratified K-Fold
+- **Hyperparameter tuning:** GridSearchCV (exhaustive search)
+- **Train/Test split:** 80/20 with stratification
+- **Primary metric:** Weighted F1 Score
+- **Class imbalance handling:** `class_weight='balanced'` + `scale_pos_weight`
+
+### Top 15 Predictive Features (Gradient Boosting)
+
+| Rank | Feature | Importance | Category |
+|------|---------|------------|----------|
+| 1 | `controversy_risk_ratio` | 0.2763 | Numerical |
+| 2 | `controversy_risk_ratio_scaled` | 0.2570 | Numerical (scaled) |
+| 3 | `esg_controversy_divergence_scaled` | 0.1500 | Numerical (scaled) |
+| 4 | `esg_controversy_divergence` | 0.0901 | Numerical |
+| 5 | `greenwashing_signal_score` | 0.0413 | NLP |
+| 6 | `sector_esg_spread` | 0.0197 | Categorical |
+| 7 | `controversy_adjusted_risk` | 0.0176 | Numerical |
+| 8 | `esg_sector_mean_scaled` | 0.0166 | Numerical (scaled) |
+| 9 | `esg_sector_mean` | 0.0120 | Numerical |
+| 10 | `avg_word_length` | 0.0105 | NLP |
+| 11 | `esg_mad_score_scaled` | 0.0104 | Numerical (scaled) |
+| 12 | `controversy_adjusted_risk_scaled` | 0.0072 | Numerical (scaled) |
+| 13 | `esg_performance_tier` | 0.0065 | Categorical |
+| 14 | `number_density` | 0.0061 | NLP |
+| 15 | `total_esg_keyword_count` | 0.0057 | NLP |
+
+### Proxy Label Construction
+
+Since the greenwashing labels dataset (European companies) has zero company overlap with our feature matrix (US S&P 500 + Indian NIFTY50), we construct proxy labels using 5 domain-expert indicators:
+
+1. **ESG-Controversy Divergence** -- z(controversy) - z(ESG_risk) > 75th percentile
+2. **Greenwashing Linguistic Score** -- NLP vague/hedging score > 75th percentile
+3. **Risk-Controversy Mismatch** -- Low ESG risk bin + High controversy bin
+4. **Controversy-Risk Ratio** -- controversy/ESG_risk > 75th percentile
+5. **Combined Anomaly Score** -- Statistical outlier score > 75th percentile
+
+Binary label: `gw_label_binary = 1` if >= 2 out of 5 indicators are flagged.
+
+Result: 145/480 companies (30.2%) flagged as potential greenwashing.
+
+---
+
+## Risk Scoring
+
+Each company receives a **0-100 Greenwashing Risk Score** combining 5 weighted components:
+
+| Component | Weight | Source | What It Measures |
+|-----------|--------|--------|-----------------|
+| Proxy Score | 40% | model_training.py | Sum of 5 domain indicators (0-5 scaled to 0-100) |
+| Linguistic Score | 15% | nlp_sentiment_analysis.py | Vague/hedging language density |
+| Divergence Score | 15% | feature_engineering_numerical.py | ESG-controversy statistical gap |
+| Credibility (inverted) | 15% | nlp_esg_claim_extraction.py | Low claim credibility = higher risk |
+| Controversy Ratio | 15% | feature_engineering_numerical.py | Controversy relative to ESG score |
+
+### Risk Tiers
+
+| Tier | Score Range | Companies | Percentage |
+|------|------------|-----------|------------|
+| Very Low Risk | 0-20 | 26 | 5.4% |
+| Low Risk | 21-40 | 317 | 66.0% |
+| Moderate Risk | 41-60 | 128 | 26.7% |
+| High Risk | 61-80 | 9 | 1.9% |
+| Very High Risk | 81-100 | 0 | 0.0% |
+
+### Top 10 Highest Risk Companies
+
+| Rank | Company | Score | Tier | Sector |
+|------|---------|-------|------|--------|
+| 1 | Adani Ports | 76.57 | High Risk | Industrials |
+| 2 | Mastercard | 71.36 | High Risk | Financial Services |
+| 3 | Target Corporation | 68.86 | High Risk | Consumer Cyclical |
+| 4 | Paramount Global | 68.53 | High Risk | Communication Services |
+| 5 | Alphabet (Google) | 65.98 | High Risk | Technology |
+| 6 | Hasbro | 63.45 | High Risk | Consumer Cyclical |
+| 7 | Cencora | 61.92 | High Risk | Healthcare |
+| 8 | Thermo Fisher | 61.31 | High Risk | Healthcare |
+| 9 | Johnson Controls | 60.11 | High Risk | Industrials |
+| 10 | Cardinal Health | 59.60 | Moderate Risk | Healthcare |
+
+---
+
+## SHAP Explainability
+
+SHAP (SHapley Additive exPlanations) answers: **"WHY did the model flag this company?"**
+
+For each flagged company, SHAP shows:
+- Which features pushed the prediction TOWARD greenwashing (positive SHAP)
+- Which features pushed AWAY from greenwashing (negative SHAP)
+- The magnitude of each feature's contribution
+
+### Outputs Generated
+
+| File | Description |
+|------|-------------|
+| `plots/shap_summary.png` | Beeswarm plot: all features x all companies |
+| `plots/shap_bar.png` | Mean absolute SHAP values (global importance) |
+| `plots/shap_dependence.png` | Top feature: how its value affects prediction |
+| `data/processed/shap_explanations.txt` | Text explanations for top 10 flagged companies |
+
+---
+
+## Streamlit Dashboard
+
+Interactive web UI with 5 pages, all charts built with **Plotly** (zoomable, hoverable, clickable):
+
+| Page | What It Shows |
+|------|--------------|
+| **Risk Score Dashboard** | Histogram, pie chart, sector comparison, bubble scatter, ranked table |
+| **Model Performance** | Grouped bar chart, radar comparison, training time, metrics table |
+| **Feature Importance** | Interactive bar chart, treemap by category, cumulative importance curve |
+| **Company Deep Dive** | Component breakdown, gauge meter, radar profile, sector peer comparison |
+| **SHAP Explanations** | Feature impact bars, distribution explorer, correlation heatmap |
+
+---
+
 ## How to Run
 
 ### Prerequisites
 
 ```bash
-pip install pandas numpy scipy scikit-learn openpyxl
+pip install pandas numpy scipy scikit-learn openpyxl xgboost matplotlib seaborn shap plotly streamlit
 ```
 
-### Step-by-Step Execution
+### Option 1: Run Everything (Single Command)
 
 ```bash
-# Step 1: Data Preprocessing (cleans raw data, creates company_profiles.csv)
+python model_pipeline.py
+```
+
+This runs all 6 phases end-to-end (~5-10 minutes).
+
+### Option 2: Run Step-by-Step
+
+```bash
+# Phase 1: Data Preprocessing
 python data_preprocessing.py
 
-# Step 2: NLP Analysis (sentiment, claims extraction)
+# Phase 2: NLP Analysis
 python nlp_pipeline.py
 
-# Step 3: Feature Engineering (creates final feature_matrix.csv)
+# Phase 3: Feature Engineering
 python feature_engineering_pipeline.py
+
+# Phase 4: Model Training (includes proxy labels + 6 models)
+python model_training.py
+
+# Phase 5: Risk Scoring
+python risk_scoring.py
+
+# Phase 6: Launch Dashboard
+python -m streamlit run streamlit_dashboard.py
 ```
 
 ### Quick Verification
@@ -1100,16 +1276,53 @@ python feature_engineering_pipeline.py
 ```python
 import pandas as pd
 
-# Load the final feature matrix
+# Check feature matrix
 fm = pd.read_csv('data/processed/feature_matrix.csv')
-print(f"Feature matrix shape: {fm.shape}")
-# Expected output: Feature matrix shape: (480, 169)
+print(f"Feature matrix: {fm.shape}")  # Expected: (480, 169)
 
-# Check key greenwashing detection features
-print(fm[['company_name', 'esg_controversy_divergence',
-          'greenwashing_signal_score', 'risk_controversy_mismatch']].head())
+# Check risk scores
+rs = pd.read_csv('data/processed/greenwashing_risk_scores.csv')
+print(f"Risk scores: {rs.shape}")     # Expected: (480, 12+)
+print(rs[['company_name', 'risk_score', 'risk_tier']].head(10))
+
+# Check model metrics
+mm = pd.read_csv('data/processed/model_metrics.csv')
+print(mm[['model', 'f1_score', 'roc_auc']])
 ```
 
 ---
 
+## Dependencies
 
+| Package | Version | Purpose |
+|---------|---------|---------|
+| pandas | >= 1.5 | Data manipulation and analysis |
+| numpy | >= 1.23 | Numerical computing |
+| scipy | >= 1.9 | Statistical functions (z-score, skewness) |
+| scikit-learn | >= 1.1 | ML models, preprocessing, metrics |
+| xgboost | >= 1.7 | Extreme Gradient Boosting classifier |
+| matplotlib | >= 3.6 | Static plot generation |
+| seaborn | >= 0.12 | Statistical visualization (confusion matrices) |
+| shap | >= 0.42 | Model explainability (SHAP values) |
+| plotly | >= 5.0 | Interactive charts (dashboard) |
+| streamlit | >= 1.25 | Web dashboard framework |
+| openpyxl | >= 3.0 | Reading Excel (.xlsx) files |
+
+---
+
+## Project Statistics
+
+| Metric | Value |
+|--------|-------|
+| Total Python files | 15 |
+| Total lines of code | ~12,000+ |
+| Processed output files | 25 |
+| Visualization plots | 8 |
+| Companies analyzed | 480 |
+| Features engineered | 121 (+43 scaled) |
+| ML models trained | 6 (5 supervised + 1 unsupervised) |
+| Best model F1 score | 0.9682 |
+| Best model ROC-AUC | 0.9979 |
+| Greenwashing flagged | 145/480 (30.2%) |
+| High risk companies | 9/480 (1.9%) |
+| Pipeline execution time | ~5 minutes |
