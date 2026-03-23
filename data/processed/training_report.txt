@@ -1,0 +1,53 @@
+======================================================================
+ESG GREENWASHING DETECTION - MODEL TRAINING REPORT
+Generated: 2026-03-23 19:53:36
+======================================================================
+
+Dataset: 480 companies, 161 features
+Target: gw_label_binary (proxy-constructed)
+Train/Test split: 80/20 with stratification
+Cross-validation: 5-fold stratified
+
+--- MODEL COMPARISON ---
+
+              model  accuracy  precision   recall  f1_score  roc_auc  best_cv_score  training_time_sec
+  Gradient Boosting  0.968750   0.970089 0.968750  0.968240 0.997941       0.968373         469.675844
+      Random Forest  0.895833   0.894559 0.895833  0.894739 0.944931       0.950377         112.516183
+Logistic Regression  0.864583   0.866067 0.864583  0.865222 0.930520       0.899861           0.634235
+                SVM  0.843750   0.849609 0.843750  0.845803 0.920226       0.899755           1.102301
+
+
+--- BEST MODEL: Gradient Boosting ---
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.96      1.00      0.98        67
+           1       1.00      0.90      0.95        29
+
+    accuracy                           0.97        96
+   macro avg       0.98      0.95      0.96        96
+weighted avg       0.97      0.97      0.97        96
+
+
+Top 20 Most Important Features:
+   1. controversy_risk_ratio                             0.276326
+   2. controversy_risk_ratio_scaled                      0.257036
+   3. esg_controversy_divergence_scaled                  0.150036
+   4. esg_controversy_divergence                         0.090088
+   5. greenwashing_signal_score                          0.041279
+   6. sector_esg_spread                                  0.019746
+   7. controversy_adjusted_risk                          0.017589
+   8. esg_sector_mean_scaled                             0.016560
+   9. esg_sector_mean                                    0.011969
+  10. avg_word_length                                    0.010451
+  11. esg_mad_score_scaled                               0.010380
+  12. controversy_adjusted_risk_scaled                   0.007191
+  13. esg_performance_tier                               0.006547
+  14. number_density                                     0.006070
+  15. total_esg_keyword_count                            0.005660
+  16. esg_mad_score                                      0.005641
+  17. controversy_vs_sector_scaled                       0.005615
+  18. total_esg_keyword_density                          0.005352
+  19. env_gov_ratio                                      0.004785
+  20. controversy_iqr_outlier_scaled                     0.004658
