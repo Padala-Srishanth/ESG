@@ -1,6 +1,6 @@
 ======================================================================
 ESG GREENWASHING DETECTION - MODEL TRAINING REPORT
-Generated: 2026-03-23 19:53:36
+Generated: 2026-03-23 21:44:12
 ======================================================================
 
 Dataset: 480 companies, 161 features
@@ -11,10 +11,10 @@ Cross-validation: 5-fold stratified
 --- MODEL COMPARISON ---
 
               model  accuracy  precision   recall  f1_score  roc_auc  best_cv_score  training_time_sec
-  Gradient Boosting  0.968750   0.970089 0.968750  0.968240 0.997941       0.968373         469.675844
-      Random Forest  0.895833   0.894559 0.895833  0.894739 0.944931       0.950377         112.516183
-Logistic Regression  0.864583   0.866067 0.864583  0.865222 0.930520       0.899861           0.634235
-                SVM  0.843750   0.849609 0.843750  0.845803 0.920226       0.899755           1.102301
+  Gradient Boosting  0.968750   0.970089 0.968750  0.968240 0.997941       0.968373         204.509391
+      Random Forest  0.895833   0.894559 0.895833  0.894739 0.944931       0.950377          89.099558
+Logistic Regression  0.864583   0.866067 0.864583  0.865222 0.930520       0.899861           0.304933
+                SVM  0.843750   0.849609 0.843750  0.845803 0.920226       0.899755           0.342274
 
 
 --- BEST MODEL: Gradient Boosting ---

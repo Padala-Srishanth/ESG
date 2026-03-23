@@ -1,0 +1,203 @@
+======================================================================
+COMPANY-LEVEL GREENWASHING EXPLANATIONS (SHAP)
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+  RANK #1: CDW CORPORATION
+  Sector: Technology | GW Proxy Score: 2/5
+  Total SHAP Push: +28.0103
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +7.7705     1.5066 >>> INCREASES risk
+  esg_controversy_divergence                       +6.3874     1.5066 >>> INCREASES risk
+  controversy_risk_ratio                           +5.3069     2.7301 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.3902     2.7301 >>> INCREASES risk
+  esg_percentile_rank_scaled                       +0.8261    -1.6931 >>> INCREASES risk
+  greenwashing_signal_score                        -0.7890    -1.2220 >>> DECREASES risk
+  esg_squared_scaled                               +0.5016    -1.2235 >>> INCREASES risk
+  esg_score_zscore_scaled                          +0.4260    -1.7211 >>> INCREASES risk
+  esg_pillar_mean_scaled                           +0.4064    -1.8283 >>> INCREASES risk
+  esg_pillar_mean                                  +0.3836    -1.8283 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #2: MICROSOFT CORP
+  Sector: Technology | GW Proxy Score: 3/5
+  Total SHAP Push: +27.8724
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.5725     1.9203 >>> INCREASES risk
+  esg_controversy_divergence                       +7.8486     1.9203 >>> INCREASES risk
+  controversy_risk_ratio                           +4.9094     2.2974 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.0016     2.2974 >>> INCREASES risk
+  greenwashing_signal_score                        -1.1404    -2.3258 >>> DECREASES risk
+  controversy_vs_sector                            +0.4708     1.7100 >>> INCREASES risk
+  controversy_vs_sector_scaled                     +0.4141     1.7100 >>> INCREASES risk
+  esg_mad_score                                    +0.3573     0.0826 >>> INCREASES risk
+  esg_mad_score_scaled                             +0.2749     0.0826 >>> INCREASES risk
+  esg_pillar_mean_scaled                           +0.2508    -0.9370 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #3: TRIMBLE INC.
+  Sector: Technology | GW Proxy Score: 2/5
+  Total SHAP Push: +27.8715
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.5107     1.1200 >>> INCREASES risk
+  esg_controversy_divergence                       +7.7767     1.1200 >>> INCREASES risk
+  controversy_risk_ratio                           +5.7179     1.4330 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.6014     1.4330 >>> INCREASES risk
+  greenwashing_signal_score                        -0.7910    -1.6086 >>> DECREASES risk
+  esg_pillar_mean_scaled                           +0.2918    -1.3449 >>> INCREASES risk
+  esg_mad_score                                    +0.2824     0.6764 >>> INCREASES risk
+  esg_pillar_mean                                  +0.2237    -1.3449 >>> INCREASES risk
+  esg_mad_score_scaled                             +0.1739     0.6764 >>> INCREASES risk
+  cross_risk_bin                                   +0.1051    -1.2716 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #4: THERMO FISHER SCIENTIFIC, INC.
+  Sector: Healthcare | GW Proxy Score: 3/5
+  Total SHAP Push: +27.8712
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.5292     2.1982 >>> INCREASES risk
+  esg_controversy_divergence                       +7.8490     2.1982 >>> INCREASES risk
+  controversy_risk_ratio                           +5.5864     3.1228 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.5048     3.1228 >>> INCREASES risk
+  greenwashing_signal_score                        -1.1596    -1.6814 >>> DECREASES risk
+  esg_mad_score                                    +0.3220     0.5884 >>> INCREASES risk
+  esg_pillar_mean_scaled                           +0.2812    -1.2845 >>> INCREASES risk
+  esg_mad_score_scaled                             +0.2399     0.5884 >>> INCREASES risk
+  esg_pillar_mean                                  +0.1809    -1.2845 >>> INCREASES risk
+  gov_keyword_density                              +0.1157    -0.4748 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #5: SYNOPSYS INC
+  Sector: Technology | GW Proxy Score: 2/5
+  Total SHAP Push: +27.8711
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.5076     0.8783 >>> INCREASES risk
+  esg_controversy_divergence                       +7.7813     0.8783 >>> INCREASES risk
+  controversy_risk_ratio                           +5.7101     0.9150 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.6343     0.9150 >>> INCREASES risk
+  greenwashing_signal_score                        -0.8520    -0.7832 >>> DECREASES risk
+  esg_mad_score                                    +0.3463     0.2366 >>> INCREASES risk
+  esg_pillar_mean_scaled                           +0.3044    -1.0428 >>> INCREASES risk
+  esg_mad_score_scaled                             +0.2268     0.2366 >>> INCREASES risk
+  esg_pillar_mean                                  +0.2176    -1.0428 >>> INCREASES risk
+  controversy_iqr_outlier                          -0.0781    -0.9443 >> DECREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #6: METTLER-TOLEDO INTERNATIONAL
+  Sector: Healthcare | GW Proxy Score: 2/5
+  Total SHAP Push: +27.8711
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.5589     1.0354 >>> INCREASES risk
+  esg_controversy_divergence                       +7.8340     1.0354 >>> INCREASES risk
+  controversy_risk_ratio                           +5.6982     1.2337 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.6078     1.2337 >>> INCREASES risk
+  greenwashing_signal_score                        -0.7989     0.0197 >>> DECREASES risk
+  esg_mad_score                                    +0.2923     0.5225 >>> INCREASES risk
+  esg_pillar_mean_scaled                           +0.2914    -1.2392 >>> INCREASES risk
+  esg_pillar_mean                                  +0.2233    -1.2392 >>> INCREASES risk
+  esg_mad_score_scaled                             +0.1830     0.5225 >>> INCREASES risk
+  gov_keyword_density                              +0.1197     0.4508 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #7: PEPSICO, INC.
+  Sector: Consumer Defensive | GW Proxy Score: 2/5
+  Total SHAP Push: +27.7853
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.9239     1.0746 >>> INCREASES risk
+  esg_controversy_divergence                       +8.2026     1.0746 >>> INCREASES risk
+  controversy_risk_ratio                           +5.5056     0.8424 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.5300     0.8424 >>> INCREASES risk
+  greenwashing_signal_score                        -0.5237    -0.7478 >>> DECREASES risk
+  esg_mad_score                                    -0.2310    -1.1489 >>> DECREASES risk
+  unique_word_count                                +0.2112     2.5738 >>> INCREASES risk
+  esg_mad_score_scaled                             -0.1953    -1.1489 >>> DECREASES risk
+  controversy_score                                +0.1215     1.2100 >>> INCREASES risk
+  esg_pillar_variance_scaled                       +0.0774    -0.7011 >> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #8: BOOKING HOLDINGS INC.
+  Sector: Consumer Cyclical | GW Proxy Score: 2/5
+  Total SHAP Push: +27.7853
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.8461     1.4250 >>> INCREASES risk
+  esg_controversy_divergence                       +8.2199     1.4250 >>> INCREASES risk
+  controversy_risk_ratio                           +5.6164     1.3164 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.4910     1.3164 >>> INCREASES risk
+  greenwashing_signal_score                        -0.4880     0.0197 >>> DECREASES risk
+  esg_mad_score                                    -0.2325    -0.8190 >>> DECREASES risk
+  imbalance_controversy_interact                   +0.2157     1.8848 >>> INCREASES risk
+  esg_mad_score_scaled                             -0.1991    -0.8190 >>> DECREASES risk
+  controversy_score                                +0.1215     1.2100 >>> INCREASES risk
+  gov_keyword_density                              +0.0922    -0.4748 >> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #9: VERIZON COMMUNICATIONS
+  Sector: Communication Services | GW Proxy Score: 3/5
+  Total SHAP Push: +27.6337
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +8.3104     1.4854 >>> INCREASES risk
+  esg_controversy_divergence                       +6.9181     1.4854 >>> INCREASES risk
+  controversy_risk_ratio                           +5.7168     1.4130 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +5.4817     1.4130 >>> INCREASES risk
+  greenwashing_signal_score                        +1.7483     0.5008 >>> INCREASES risk
+  esg_mad_score_scaled                             -0.7657    -0.7090 >>> DECREASES risk
+  esg_mad_score                                    -0.7415    -0.7090 >>> DECREASES risk
+  controversy_iqr_outlier                          +0.3074     1.0590 >>> INCREASES risk
+  combined_anomaly_score                           +0.2850     0.7940 >>> INCREASES risk
+  combined_anomaly_score_scaled                    +0.2546     0.7940 >>> INCREASES risk
+
+──────────────────────────────────────────────────────────────────────
+  RANK #10: JOHNSON & JOHNSON
+  Sector: Healthcare | GW Proxy Score: 3/5
+  Total SHAP Push: +27.4660
+──────────────────────────────────────────────────────────────────────
+
+  Top 10 Contributing Factors:
+  Feature                                             SHAP      Value Direction      
+  --------------------------------------------- ---------- ---------- ---------------
+  esg_controversy_divergence_scaled                +9.7693     1.9716 >>> INCREASES risk
+  esg_controversy_divergence                       +8.0047     1.9716 >>> INCREASES risk
+  controversy_risk_ratio                           +5.3627     1.5573 >>> INCREASES risk
+  controversy_risk_ratio_scaled                    +4.3215     1.5573 >>> INCREASES risk
+  greenwashing_signal_score                        -0.5960     0.0197 >>> DECREASES risk
+  controversy_vs_sector_scaled                     +0.3174     2.2990 >>> INCREASES risk
+  imbalance_controversy_interact                   +0.3093     3.8660 >>> INCREASES risk
+  controversy_vs_sector                            +0.2907     2.2990 >>> INCREASES risk
+  esg_mad_score                                    -0.2702    -0.7310 >>> DECREASES risk
+  esg_mad_score_scaled                             -0.1953    -0.7310 >>> DECREASES risk

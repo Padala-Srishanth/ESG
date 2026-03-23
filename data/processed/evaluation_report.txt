@@ -1,0 +1,144 @@
+======================================================================
+ESG GREENWASHING DETECTION - MODEL EVALUATION REPORT
+======================================================================
+
+--- MODEL COMPARISON ---
+
+Model                       Accuracy  Precision     Recall         F1    ROC-AUC
+---------------------------------------------------------------------------
+Gradient Boosting             0.9688     0.9701     0.9688     0.9682     0.9979
+Random Forest                 0.8958     0.8946     0.8958     0.8947     0.9449
+Logistic Regression           0.8646     0.8661     0.8646     0.8652     0.9305
+SVM                           0.8438     0.8496     0.8438     0.8458     0.9202
+
+
+======================================================================
+DETAILED REPORT: Gradient Boosting
+======================================================================
+
+Confusion Matrix:
+  True Negatives (TN):    67  — Correctly identified as NOT greenwashing
+  False Positives (FP):    0  — Wrongly flagged as greenwashing (false alarm)
+  False Negatives (FN):    3  — MISSED actual greenwashing (DANGEROUS)
+  True Positives (TP):    26  — Correctly caught greenwashing
+
+  Specificity (TNR):       1.0000  — Of safe companies, how many correctly cleared
+  Negative Predictive Value: 0.9571  — Of cleared companies, how many are actually safe
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.96      1.00      0.98        67
+           1       1.00      0.90      0.95        29
+
+    accuracy                           0.97        96
+   macro avg       0.98      0.95      0.96        96
+weighted avg       0.97      0.97      0.97        96
+
+Top 10 Features:
+   1. controversy_risk_ratio                             0.276326
+   2. controversy_risk_ratio_scaled                      0.257036
+   3. esg_controversy_divergence_scaled                  0.150036
+   4. esg_controversy_divergence                         0.090088
+   5. greenwashing_signal_score                          0.041279
+   6. sector_esg_spread                                  0.019746
+   7. controversy_adjusted_risk                          0.017589
+   8. esg_sector_mean_scaled                             0.016560
+   9. esg_sector_mean                                    0.011969
+  10. avg_word_length                                    0.010451
+
+
+======================================================================
+DETAILED REPORT: Random Forest
+======================================================================
+
+Confusion Matrix:
+  True Negatives (TN):    63  — Correctly identified as NOT greenwashing
+  False Positives (FP):    4  — Wrongly flagged as greenwashing (false alarm)
+  False Negatives (FN):    6  — MISSED actual greenwashing (DANGEROUS)
+  True Positives (TP):    23  — Correctly caught greenwashing
+
+  Specificity (TNR):       0.9403  — Of safe companies, how many correctly cleared
+  Negative Predictive Value: 0.9130  — Of cleared companies, how many are actually safe
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.91      0.94      0.93        67
+           1       0.85      0.79      0.82        29
+
+    accuracy                           0.90        96
+   macro avg       0.88      0.87      0.87        96
+weighted avg       0.89      0.90      0.89        96
+
+Top 10 Features:
+   1. controversy_risk_ratio                             0.108022
+   2. esg_controversy_divergence_scaled                  0.093267
+   3. esg_controversy_divergence                         0.092059
+   4. controversy_risk_ratio_scaled                      0.057125
+   5. risk_controversy_gap                               0.046739
+   6. esg_percentile_rank                                0.041852
+   7. esg_squared_scaled                                 0.037113
+   8. esg_squared                                        0.036372
+   9. total_esg_risk_score                               0.035291
+  10. esg_score_zscore                                   0.033287
+
+
+======================================================================
+DETAILED REPORT: Logistic Regression
+======================================================================
+
+Confusion Matrix:
+  True Negatives (TN):    60  — Correctly identified as NOT greenwashing
+  False Positives (FP):    7  — Wrongly flagged as greenwashing (false alarm)
+  False Negatives (FN):    6  — MISSED actual greenwashing (DANGEROUS)
+  True Positives (TP):    23  — Correctly caught greenwashing
+
+  Specificity (TNR):       0.8955  — Of safe companies, how many correctly cleared
+  Negative Predictive Value: 0.9091  — Of cleared companies, how many are actually safe
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.91      0.90      0.90        67
+           1       0.77      0.79      0.78        29
+
+    accuracy                           0.86        96
+   macro avg       0.84      0.84      0.84        96
+weighted avg       0.87      0.86      0.87        96
+
+Top 10 Features:
+   1. controversy_risk_ratio_scaled                      3.285741
+   2. controversy_risk_ratio                             2.626836
+   3. controversy_adjusted_risk_scaled                   1.072216
+   4. controversy_adjusted_risk                          1.043089
+   5. combined_anomaly_score_scaled                      0.957938
+   6. controversy_mad_score                              0.767640
+   7. controversy_mad_score_scaled                       0.680777
+   8. combined_anomaly_score                             0.661007
+   9. env_controversy_interaction_scaled                 0.642136
+  10. future_language_density                            0.631965
+
+
+======================================================================
+DETAILED REPORT: SVM
+======================================================================
+
+Confusion Matrix:
+  True Negatives (TN):    58  — Correctly identified as NOT greenwashing
+  False Positives (FP):    9  — Wrongly flagged as greenwashing (false alarm)
+  False Negatives (FN):    6  — MISSED actual greenwashing (DANGEROUS)
+  True Positives (TP):    23  — Correctly caught greenwashing
+
+  Specificity (TNR):       0.8657  — Of safe companies, how many correctly cleared
+  Negative Predictive Value: 0.9062  — Of cleared companies, how many are actually safe
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.91      0.87      0.89        67
+           1       0.72      0.79      0.75        29
+
+    accuracy                           0.84        96
+   macro avg       0.81      0.83      0.82        96
+weighted avg       0.85      0.84      0.85        96
