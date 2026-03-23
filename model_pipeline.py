@@ -127,11 +127,13 @@ def run_phase_3():
 
     start = time.time()
 
-    # Import the feature engineering pipeline module
-    from feature_engineering_pipeline import main as run_features  # Import main function
+    # Import the feature engineering pipeline class
+    from feature_engineering_pipeline import FeatureEngineeringPipeline  # Import pipeline class
 
-    # Execute the full feature engineering pipeline
-    feature_results = run_features()                          # Run all 3 feature modules
+    # Create pipeline instance and execute
+    pipeline = FeatureEngineeringPipeline(data_dir='data/processed')  # Initialize with data path
+    feature_matrix = pipeline.run_full_pipeline()             # Run all feature engineering steps
+    feature_results = {'feature_matrix': feature_matrix}      # Wrap result in dict
 
     elapsed = time.time() - start
     print(f"\n  Phase 3 completed in {elapsed:.2f} seconds")
