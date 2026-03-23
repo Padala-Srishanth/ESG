@@ -1,0 +1,94 @@
+======================================================================
+ESG GREENWASHING DETECTION — FINAL PIPELINE REPORT
+Generated: 2026-03-23 21:44:18
+======================================================================
+
+Total execution time: 306.68 seconds
+Companies analyzed: 480
+Features engineered: 161
+Models trained: 4 supervised + 1 unsupervised
+
+======================================================================
+MODEL LEADERBOARD
+======================================================================
+
+Model                       Accuracy  Precision     Recall         F1    ROC-AUC
+---------------------------------------------------------------------------
+Gradient Boosting             0.9688     0.9701     0.9688     0.9682     0.9979
+Random Forest                 0.8958     0.8946     0.8958     0.8947     0.9449
+Logistic Regression           0.8646     0.8661     0.8646     0.8652     0.9305
+SVM                           0.8438     0.8496     0.8438     0.8458     0.9202
+
+BEST MODEL: Gradient Boosting (F1 = 0.9682)
+
+======================================================================
+GREENWASHING RISK DISTRIBUTION
+======================================================================
+
+  Score 0:  198 ( 41.2%)
+  Score 1:  137 ( 28.5%)
+  Score 2:  105 ( 21.9%)
+  Score 3:   35 (  7.3%)
+  Score 4:    5 (  1.0%)
+  Score 5:    0 (  0.0%)
+
+  Flagged as greenwashing (score >= 2): 145 / 480 companies
+
+======================================================================
+TOP 15 PREDICTIVE FEATURES (Gradient Boosting)
+======================================================================
+
+   1. controversy_risk_ratio                             0.276326
+   2. controversy_risk_ratio_scaled                      0.257036
+   3. esg_controversy_divergence_scaled                  0.150036
+   4. esg_controversy_divergence                         0.090088
+   5. greenwashing_signal_score                          0.041279
+   6. sector_esg_spread                                  0.019746
+   7. controversy_adjusted_risk                          0.017589
+   8. esg_sector_mean_scaled                             0.016560
+   9. esg_sector_mean                                    0.011969
+  10. avg_word_length                                    0.010451
+  11. esg_mad_score_scaled                               0.010380
+  12. controversy_adjusted_risk_scaled                   0.007191
+  13. esg_performance_tier                               0.006547
+  14. number_density                                     0.006070
+  15. total_esg_keyword_count                            0.005660
+
+======================================================================
+OUTPUT FILES
+======================================================================
+
+  data/processed/
+    all_esg_claims.csv                               120.3 KB
+    claims_nifty50_detailed.csv                       14.9 KB
+    claims_sp500_detailed.csv                        105.5 KB
+    company_profiles.csv                             705.9 KB
+    company_profiles_nlp.csv                        2007.2 KB
+    esg_claim_report.txt                               2.5 KB
+    esg_financial_features.csv                       475.5 KB
+    evaluation_report.txt                              6.8 KB
+    feature_importance_gradient_boosting.csv           6.8 KB
+    feature_importance_logistic_regression.csv         5.1 KB
+    feature_importance_random_forest.csv               6.4 KB
+    feature_matrix.csv                              1642.2 KB
+    feature_registry.csv                               9.6 KB
+    greenwashing_cleaned.csv                          24.4 KB
+    model_metrics.csv                                  0.6 KB
+    nifty50_esg_cleaned.csv                           72.9 KB
+    nifty50_nlp_features.csv                         199.8 KB
+    pipeline_summary.txt                               0.6 KB
+    predictions.csv                                   23.7 KB
+    shap_explanations.txt                             16.2 KB
+    sp500_esg_cleaned.csv                            639.6 KB
+    sp500_nlp_features.csv                          1814.9 KB
+    training_report.txt                                2.7 KB
+
+  plots/
+    confusion_matrices.png                           133.8 KB
+    feature_importance.png                           133.8 KB
+    model_comparison.png                              73.4 KB
+    precision_recall_curves.png                       69.1 KB
+    roc_curves.png                                    94.7 KB
+    shap_bar.png                                     117.7 KB
+    shap_dependence.png                               75.7 KB
+    shap_summary.png                                 224.9 KB

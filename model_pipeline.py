@@ -475,9 +475,9 @@ def main():
     Greenwashing flagged: {(phase4_results['data_with_labels']['gw_label_binary'] == 1).sum()} / {len(phase4_results['data_with_labels'])} companies
 
     Output directories:
-    - data/processed/    → Cleaned data, features, predictions, metrics
-    - plots/             → ROC curves, confusion matrices, SHAP plots
-    - PIPELINE_REPORT.txt → Full pipeline execution report
+    - data/processed/    -- Cleaned data, features, predictions, metrics
+    - plots/             -- ROC curves, confusion matrices, SHAP plots
+    - PIPELINE_REPORT.txt -- Full pipeline execution report
 
     To run: python model_pipeline.py
     """)

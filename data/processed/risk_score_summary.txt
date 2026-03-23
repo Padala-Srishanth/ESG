@@ -1,0 +1,67 @@
+======================================================================
+GREENWASHING RISK SCORING REPORT
+======================================================================
+
+Total companies scored: 480
+Risk score range: 15.83 - 76.57
+Mean risk score: 33.41
+
+--- RISK TIER DISTRIBUTION ---
+  Very Low Risk       :   26 (  5.4%)
+  Low Risk            :  317 ( 66.0%)
+  Moderate Risk       :  128 ( 26.7%)
+  High Risk           :    9 (  1.9%)
+  Very High Risk      :    0 (  0.0%)
+
+--- TOP 20 HIGHEST RISK COMPANIES ---
+Rank   Company                                         Score Tier               Sector              
+------------------------------------------------------------------------------------------------
+1      ADANI PORTS AND SPECIAL ECONOMIC ZONE LTD.      76.57 High Risk          Industrials         
+2      MASTERCARD INCORPORATED                         71.36 High Risk          Financial Services  
+3      TARGET CORPORATION                              68.86 High Risk          Consumer Defensive  
+4      PARAMOUNT GLOBAL CLASS B                        68.53 High Risk          Communication Servi 
+5      ALPHABET INC. CLASS A                           65.98 High Risk          Communication Servi 
+6      HASBRO, INC.                                    63.45 High Risk          Consumer Cyclical   
+7      CENCORA, INC.                                   61.92 High Risk          Healthcare          
+8      THERMO FISHER SCIENTIFIC, INC.                  61.31 High Risk          Healthcare          
+9      JOHNSON CONTROLS INTERNATIONAL PLC              60.11 High Risk          Industrials         
+10     CARDINAL HEALTH, INC.                           59.60 Moderate Risk      Healthcare          
+11     UNITEDHEALTH GROUP INCORPORATED                 59.21 Moderate Risk      Healthcare          
+12     QUALCOMM INC                                    59.12 Moderate Risk      Technology          
+13     MCKESSON CORPORATION                            58.95 Moderate Risk      Healthcare          
+14     CROWN CASTLE INC.                               58.76 Moderate Risk      Real Estate         
+15     MICROSOFT CORP                                  58.56 Moderate Risk      Technology          
+16     WALGREENS BOOTS ALLIANCE, INC                   58.30 Moderate Risk      Healthcare          
+17     VISA INC.                                       57.95 Moderate Risk      Financial Services  
+18     JOHNSON & JOHNSON                               57.87 Moderate Risk      Healthcare          
+19     KIMCO REALTY CORP.                              57.34 Moderate Risk      Real Estate         
+20     SBA COMMUNICATIONS CORP                         56.88 Moderate Risk      Real Estate         
+
+--- TOP 10 LOWEST RISK COMPANIES ---
+Rank   Company                                         Score Tier               Sector              
+------------------------------------------------------------------------------------------------
+471    BHARAT PETROLEUM CORPORATION LTD.               18.53 Very Low Risk      Energy              
+472    RESMED INC.                                     18.36 Very Low Risk      Healthcare          
+473    CINCINNATI FINANCIAL CORP                       18.35 Very Low Risk      Financial Services  
+474    SBI LIFE INSURANCE COMPANY LTD.                 18.32 Very Low Risk      Financial Services  
+475    DOVER CORPORATION                               18.25 Very Low Risk      Industrials         
+476    APA CORPORATION                                 18.17 Very Low Risk      Energy              
+477    TRANSDIGM GROUP INCORPORATED                    17.62 Very Low Risk      Industrials         
+478    OCCIDENTAL PETROLEUM CORPORATION                17.14 Very Low Risk      Energy              
+479    GRASIM INDUSTRIES LTD.                          16.65 Very Low Risk      Basic Materials     
+480    COAL INDIA LTD.                                 15.83 Very Low Risk      Energy              
+
+--- SECTOR RISK SUMMARY ---
+Sector                     Avg Score  Max Score  Companies
+-------------------------------------------------------
+Communication Services         45.77      68.53         15
+Real Estate                    43.55      58.76         28
+Healthcare                     36.87      61.92         58
+Consumer Cyclical              35.82      63.45         58
+Technology                     35.62      59.12         67
+Consumer Defensive             31.14      68.86         38
+Utilities                      31.01      54.25         30
+Industrials                    29.98      76.57         62
+Financial Services             29.72      71.36         74
+Basic Materials                27.83      53.58         25
+Energy                         26.35      44.94         25
