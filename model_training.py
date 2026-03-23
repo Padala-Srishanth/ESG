@@ -28,10 +28,11 @@ CRITICAL DESIGN DECISION:
 
 Models Trained:
     1. Random Forest Classifier        — Ensemble of decision trees (robust baseline)
-    2. Gradient Boosting (XGBoost)      — State-of-the-art gradient boosting
-    3. Logistic Regression              — Linear model (interpretable baseline)
-    4. Support Vector Machine (SVM)     — Kernel-based classifier
-    5. Isolation Forest                 — Unsupervised anomaly detection
+    2. Gradient Boosting (sklearn)      — Sequential boosted trees (sklearn version)
+    3. XGBoost Classifier              — Extreme Gradient Boosting (state-of-the-art)
+    4. Logistic Regression              — Linear model (interpretable baseline)
+    5. Support Vector Machine (SVM)     — Kernel-based classifier
+    6. Isolation Forest                 — Unsupervised anomaly detection
 ================================================================================
 """
 
@@ -78,6 +79,9 @@ from sklearn.linear_model import (           # Linear models
     LogisticRegression,                      # Linear classification with sigmoid
 )
 from sklearn.svm import SVC                  # Support Vector Machine classifier
+
+# --- XGBoost: State-of-the-art gradient boosting ---
+from xgboost import XGBClassifier            # Extreme Gradient Boosting classifier (Chen & Guestrin 2016)
 
 warnings.filterwarnings('ignore')            # Suppress all warnings for clean output
 
@@ -441,7 +445,39 @@ def get_model_configs():
         },
 
         # ----------------------------------------------------------------
-        # MODEL 3: Logistic Regression
+        # MODEL 3: XGBoost Classifier
+        # ----------------------------------------------------------------
+        # Extreme Gradient Boosting — the industry gold standard for tabular data
+        # Key advantages over sklearn GradientBoosting:
+        #   - Built-in L1/L2 regularization (reg_alpha, reg_lambda)
+        #   - Native handling of missing values
+        #   - Column subsampling (colsample_bytree) like Random Forest
+        #   - Parallel tree construction (faster training)
+        #   - Histogram-based splitting (memory efficient)
+        # WHY: Consistently wins Kaggle competitions on tabular data,
+        #       better regularization prevents overfitting on small datasets
+        'XGBoost': {
+            'estimator': XGBClassifier(                       # Initialize XGBoost classifier
+                random_state=42,                              # Reproducible results
+                use_label_encoder=False,                      # Suppress deprecated warning
+                eval_metric='logloss',                        # Log loss for binary classification
+                n_jobs=-1,                                    # Use all CPU cores
+            ),
+            'param_grid': {                                   # Hyperparameters to search
+                'n_estimators': [100, 200, 300],              # Number of boosting rounds
+                'learning_rate': [0.01, 0.05, 0.1],          # Step size shrinkage (eta)
+                'max_depth': [3, 5, 7],                       # Max tree depth
+                'min_child_weight': [1, 3, 5],                # Min sum of instance weight in a child
+                'subsample': [0.8, 1.0],                      # Row subsampling ratio per tree
+                'colsample_bytree': [0.7, 0.9, 1.0],         # Column subsampling ratio per tree
+                'reg_alpha': [0, 0.1],                        # L1 regularization (Lasso penalty)
+                'reg_lambda': [1.0, 2.0],                     # L2 regularization (Ridge penalty)
+                'scale_pos_weight': [1, 2.3],                 # Weight for positive class (ratio neg/pos ~ 2.3)
+            },
+        },
+
+        # ----------------------------------------------------------------
+        # MODEL 4: Logistic Regression
         # ----------------------------------------------------------------
         # Linear model: learns weighted sum of features + sigmoid activation
         # P(greenwashing) = sigmoid(w1*x1 + w2*x2 + ... + bias)
@@ -460,7 +496,7 @@ def get_model_configs():
         },
 
         # ----------------------------------------------------------------
-        # MODEL 4: Support Vector Machine (SVM)
+        # MODEL 5: Support Vector Machine (SVM)
         # ----------------------------------------------------------------
         # Finds the optimal hyperplane that separates classes with max margin
         # Kernel trick maps data to higher dimensions for non-linear boundaries
