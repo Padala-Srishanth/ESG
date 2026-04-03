@@ -21,6 +21,7 @@ import plotly.graph_objects as go            # Plotly graph objects for custom c
 from plotly.subplots import make_subplots    # Subplots for multi-panel figures
 import os                                    # File system operations
 import re                                    # Regular expressions
+import json                                  # JSON parsing
 import xml.etree.ElementTree as ET           # XML parsing for RSS feeds
 from datetime import datetime, timedelta     # Date handling
 from urllib.parse import quote               # URL encoding
@@ -124,6 +125,7 @@ def render_sidebar(data):
             "Company Deep Dive",
             "Company Search & Analysis",
             "Real-Time Intelligence",
+            "ESG Report Analyzer (AI)",
             "SHAP Explanations",
         ]
     )
@@ -1594,7 +1596,605 @@ def page_realtime_intelligence(data):
 
 
 # ============================================================================
-# PAGE 7: SHAP EXPLANATIONS (all interactive)
+# PAGE 7: LLM-POWERED ESG REPORT ANALYZER
+# ============================================================================
+
+def _extract_pdf_text(uploaded_file):
+    """Extract text from uploaded PDF file."""
+    try:
+        from PyPDF2 import PdfReader
+        reader = PdfReader(uploaded_file)
+        text = ""
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text.strip()
+    except Exception as e:
+        return None
+
+
+def _call_gemini(api_key, prompt, max_tokens=8000):
+    """Call Google Gemini API for ESG report analysis."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.3,
+            )
+        )
+        return response.text
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+
+def _build_analysis_prompt(report_text, company_data=None):
+    """Build the Gemini prompt for ESG greenwashing analysis."""
+
+    company_context = ""
+    if company_data is not None:
+        company_context = f"""
+EXISTING DATA FOR THIS COMPANY (from our ML analysis):
+- ESG Risk Score: {company_data.get('total_esg_risk_score', 'N/A')}
+- Controversy Score: {company_data.get('controversy_score', 'N/A')}
+- Greenwashing Risk Score: {company_data.get('risk_score', 'N/A')}/100
+- Risk Tier: {company_data.get('risk_tier', 'N/A')}
+- Sector: {company_data.get('sector', 'N/A')}
+
+Use this data to cross-check claims in the report. Flag contradictions.
+"""
+
+    prompt = f"""You are an expert ESG analyst specializing in greenwashing detection.
+Analyze the following ESG/sustainability report text and identify greenwashing risks.
+
+{company_context}
+
+REPORT TEXT:
+{report_text[:15000]}
+
+INSTRUCTIONS - Respond in EXACTLY this JSON format (no markdown, no code fences):
+{{
+  "company_name": "detected company name or Unknown",
+  "overall_risk": "HIGH/MEDIUM/LOW",
+  "overall_score": <number 0-100>,
+  "summary": "2-3 sentence overall assessment",
+  "claims": [
+    {{
+      "claim_text": "exact quote from report",
+      "category": "Environmental/Social/Governance",
+      "risk_level": "HIGH/MEDIUM/LOW",
+      "issue": "specific greenwashing concern",
+      "explanation": "detailed explanation of why this is suspicious or credible",
+      "evidence_type": "Vague Promise/Missing Data/Contradicts Data/Unverified/Credible"
+    }}
+  ],
+  "red_flags": ["list of major concerns"],
+  "positive_signals": ["list of credible practices"],
+  "recommendations": ["list of what the company should improve"]
+}}
+
+ANALYSIS RULES:
+1. Extract 8-15 specific claims from the report
+2. For each claim, assess if it shows greenwashing patterns:
+   - Vague language without measurable targets ("committed to sustainability")
+   - Future promises without past performance data ("we will reduce by 2030")
+   - Cherry-picked metrics that hide overall poor performance
+   - Superlatives without evidence ("industry-leading", "world-class")
+   - Missing third-party verification for bold claims
+3. Cross-reference with company data if available
+4. Rate overall greenwashing risk 0-100
+5. Be specific in explanations -- cite exact words from the report
+
+Return ONLY valid JSON, no other text."""
+
+    return prompt
+
+
+def _parse_gemini_response(response_text):
+    """Parse the JSON response from Gemini."""
+    try:
+        # Clean response -- remove markdown code fences if present
+        cleaned = response_text.strip()
+        if cleaned.startswith('```'):
+            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+            cleaned = re.sub(r'\s*```$', '', cleaned)
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Try to extract JSON from the response
+        match = re.search(r'\{[\s\S]*\}', response_text)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        return None
+
+
+def _fallback_analysis(text):
+    """Rule-based fallback analysis when Gemini is unavailable."""
+    sentences = re.split(r'[.!?]+', text)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+
+    vague_patterns = [
+        r'committed to', r'striving for', r'working towards', r'aim to',
+        r'plan to', r'intend to', r'aspire', r'endeavour', r'dedicated to',
+        r'believe in', r'passionate about', r'focused on',
+    ]
+    superlative_patterns = [
+        r'industry.?leading', r'world.?class', r'best.?in.?class', r'leading',
+        r'top.?tier', r'premier', r'unmatched', r'unparalleled',
+    ]
+    future_patterns = [
+        r'will\s', r'by 20\d\d', r'going forward', r'in the future',
+        r'upcoming', r'planned', r'roadmap', r'target of',
+    ]
+    concrete_patterns = [
+        r'\d+%', r'\d+ ton', r'ISO \d+', r'GRI', r'TCFD', r'verified by',
+        r'audited', r'certified', r'reduced by', r'achieved',
+    ]
+
+    claims = []
+    for sent in sentences[:30]:
+        sent_lower = sent.lower()
+        is_vague = any(re.search(p, sent_lower) for p in vague_patterns)
+        is_superlative = any(re.search(p, sent_lower) for p in superlative_patterns)
+        is_future = any(re.search(p, sent_lower) for p in future_patterns)
+        is_concrete = any(re.search(p, sent_lower) for p in concrete_patterns)
+
+        if is_vague or is_superlative or is_future or is_concrete:
+            if is_vague and not is_concrete:
+                risk = "HIGH"
+                issue = "Uses vague language without measurable commitments"
+                evidence = "Vague Promise"
+            elif is_superlative:
+                risk = "MEDIUM"
+                issue = "Superlative claims without supporting evidence"
+                evidence = "Unverified"
+            elif is_future and not is_concrete:
+                risk = "MEDIUM"
+                issue = "Future promise without past performance data"
+                evidence = "Vague Promise"
+            elif is_concrete:
+                risk = "LOW"
+                issue = "Contains measurable data points"
+                evidence = "Credible"
+            else:
+                risk = "MEDIUM"
+                issue = "Requires further verification"
+                evidence = "Unverified"
+
+            claims.append({
+                'claim_text': sent[:200],
+                'category': 'Environmental' if any(w in sent_lower for w in
+                    ['carbon', 'emission', 'climate', 'renewable', 'energy', 'water', 'waste'])
+                    else 'Social' if any(w in sent_lower for w in
+                    ['employee', 'diversity', 'community', 'safety', 'human rights'])
+                    else 'Governance',
+                'risk_level': risk,
+                'issue': issue,
+                'explanation': f"This statement {'uses vague aspirational language' if is_vague else 'contains superlatives' if is_superlative else 'makes future promises' if is_future else 'provides concrete data'}. "
+                    + ("No specific metrics or timelines are mentioned." if risk != "LOW" else "Includes verifiable data points."),
+                'evidence_type': evidence,
+            })
+
+    high_count = sum(1 for c in claims if c['risk_level'] == 'HIGH')
+    total = len(claims) if claims else 1
+    score = min(100, int((high_count / total) * 100 + 20))
+
+    return {
+        'company_name': 'Unknown (PDF Analysis)',
+        'overall_risk': 'HIGH' if score >= 60 else 'MEDIUM' if score >= 40 else 'LOW',
+        'overall_score': score,
+        'summary': f'Analyzed {len(sentences)} sentences, found {len(claims)} ESG claims. '
+                   f'{high_count} show high greenwashing risk patterns.',
+        'claims': claims[:15],
+        'red_flags': [c['issue'] for c in claims if c['risk_level'] == 'HIGH'][:5],
+        'positive_signals': [c['issue'] for c in claims if c['risk_level'] == 'LOW'][:5],
+        'recommendations': [
+            'Add measurable targets with specific timelines',
+            'Include third-party verification for major claims',
+            'Report on past performance, not just future intentions',
+        ],
+    }
+
+
+def page_esg_report_analyzer(data):
+    """LLM-Powered ESG Report Analyzer -- Upload, Analyze, Explain."""
+
+    # --- Styled header ---
+    st.markdown("""
+    <style>
+    .analyzer-header {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+        border: 1px solid #e94560;
+    }
+    .analyzer-header h1 { color: #e94560; margin: 0; font-family: monospace; }
+    .analyzer-header p { color: #7ec8e3; margin: 5px 0 0 0; font-size: 14px; }
+    .claim-high {
+        background: #fff0f0; padding: 15px; border-radius: 8px; margin: 8px 0;
+        border-left: 5px solid #e74c3c;
+    }
+    .claim-medium {
+        background: #fff8e1; padding: 15px; border-radius: 8px; margin: 8px 0;
+        border-left: 5px solid #ff9800;
+    }
+    .claim-low {
+        background: #f0fff0; padding: 15px; border-radius: 8px; margin: 8px 0;
+        border-left: 5px solid #4caf50;
+    }
+    .claim-label {
+        display: inline-block; padding: 2px 10px; border-radius: 12px;
+        font-size: 12px; font-weight: bold; color: white; margin-right: 8px;
+    }
+    .label-high { background: #e74c3c; }
+    .label-medium { background: #ff9800; }
+    .label-low { background: #4caf50; }
+    .red-flag-box {
+        background: #1a1a2e; color: #ff4444; padding: 12px 16px;
+        border-radius: 8px; margin: 4px 0; font-family: monospace;
+        border: 1px solid #333;
+    }
+    .positive-box {
+        background: #1a1a2e; color: #00cc66; padding: 12px 16px;
+        border-radius: 8px; margin: 4px 0; font-family: monospace;
+        border: 1px solid #333;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="analyzer-header">
+        <h1>LLM-POWERED ESG REPORT ANALYZER</h1>
+        <p>Upload PDF → AI Extracts Claims → Detects Greenwashing → Explains Why</p>
+        <p>Powered by Google Gemini 2.0 Flash</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- API Key input ---
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        api_key = st.text_input(
+            "Google Gemini API Key",
+            type="password",
+            placeholder="Paste your Gemini API key here...",
+            help="Get free key at https://aistudio.google.com/apikey",
+        )
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        use_fallback = st.checkbox("Use without API key", value=False,
+                                   help="Uses rule-based analysis instead of LLM")
+
+    if not api_key and not use_fallback:
+        st.info("Enter your Gemini API key above, or check 'Use without API key' for rule-based analysis.")
+        st.markdown("""
+        **How to get a free API key:**
+        1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
+        2. Click 'Create API Key'
+        3. Copy and paste it above
+
+        **Free tier**: 15 requests/min, 1,500 requests/day -- more than enough!
+        """)
+        return
+
+    st.markdown("---")
+
+    # --- PDF Upload ---
+    st.subheader("Upload ESG / Sustainability Report")
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Drop a PDF report here",
+            type=['pdf'],
+            help="Upload any ESG, sustainability, or annual report (PDF format)",
+        )
+
+    with col2:
+        # Optional: match with existing company
+        df = data.get('risk_scores', pd.DataFrame())
+        company_match = None
+        if not df.empty:
+            company_names = ['Auto-detect'] + sorted(df['company_name'].dropna().unique().tolist())
+            selected_company = st.selectbox(
+                "Match with existing company (optional)",
+                company_names,
+                help="Select if this report belongs to a company in our database",
+            )
+            if selected_company != 'Auto-detect':
+                company_match = df[df['company_name'] == selected_company].iloc[0].to_dict()
+
+    if not uploaded_file:
+        st.markdown("---")
+        st.markdown("### What this analyzer does:")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("""
+            **1. Extract Claims**
+            - Finds all ESG claims in the report
+            - Categorizes as Environmental, Social, or Governance
+            - Identifies specific commitments and targets
+            """)
+        with col2:
+            st.markdown("""
+            **2. Detect Greenwashing**
+            - Flags vague promises without data
+            - Spots superlatives without evidence
+            - Finds future-only claims with no track record
+            - Cross-checks with real controversy data
+            """)
+        with col3:
+            st.markdown("""
+            **3. Explain Everything**
+            - Color-coded risk for each claim
+            - Plain-English explanations
+            - Actionable recommendations
+            - Overall greenwashing risk score
+            """)
+        return
+
+    # --- Extract text from PDF ---
+    with st.spinner("Extracting text from PDF..."):
+        report_text = _extract_pdf_text(uploaded_file)
+
+    if not report_text:
+        st.error("Could not extract text from PDF. The file may be scanned/image-based.")
+        return
+
+    st.success(f"Extracted **{len(report_text):,} characters** from {uploaded_file.name}")
+
+    # Show extracted text preview
+    with st.expander("Preview extracted text", expanded=False):
+        st.text(report_text[:3000] + ("..." if len(report_text) > 3000 else ""))
+
+    st.markdown("---")
+
+    # --- Run Analysis ---
+    if st.button("Analyze Report for Greenwashing", type="primary", use_container_width=True):
+
+        if use_fallback:
+            with st.spinner("Running rule-based analysis..."):
+                result = _fallback_analysis(report_text)
+        else:
+            with st.spinner("Gemini AI is analyzing the report... (this takes 10-20 seconds)"):
+                prompt = _build_analysis_prompt(report_text, company_match)
+                raw_response = _call_gemini(api_key, prompt)
+
+                if raw_response.startswith("ERROR:"):
+                    st.error(f"Gemini API error: {raw_response}")
+                    st.warning("Falling back to rule-based analysis...")
+                    result = _fallback_analysis(report_text)
+                else:
+                    result = _parse_gemini_response(raw_response)
+                    if result is None:
+                        st.warning("Could not parse Gemini response. Using rule-based fallback...")
+                        result = _fallback_analysis(report_text)
+
+        # Store result in session state for persistence
+        st.session_state['report_analysis'] = result
+        st.session_state['report_name'] = uploaded_file.name
+
+    # --- Display Results ---
+    if 'report_analysis' not in st.session_state:
+        return
+
+    result = st.session_state['report_analysis']
+    report_name = st.session_state.get('report_name', 'Report')
+
+    st.markdown("---")
+    st.header(f"Analysis Results: {report_name}")
+
+    # === SECTION 1: Overall Risk Score ===
+    col1, col2, col3, col4 = st.columns(4)
+    overall_score = result.get('overall_score', 50)
+    overall_risk = result.get('overall_risk', 'MEDIUM')
+    claims = result.get('claims', [])
+
+    with col1:
+        st.metric("Greenwashing Risk", f"{overall_score}/100")
+    with col2:
+        st.metric("Risk Level", overall_risk)
+    with col3:
+        st.metric("Claims Analyzed", len(claims))
+    with col4:
+        high_claims = sum(1 for c in claims if c.get('risk_level') == 'HIGH')
+        st.metric("Suspicious Claims", f"{high_claims}/{len(claims)}")
+
+    # Overall verdict
+    if overall_risk == 'HIGH':
+        st.error(f"**HIGH GREENWASHING RISK** -- {result.get('summary', '')}")
+    elif overall_risk == 'MEDIUM':
+        st.warning(f"**MODERATE GREENWASHING RISK** -- {result.get('summary', '')}")
+    else:
+        st.success(f"**LOW GREENWASHING RISK** -- {result.get('summary', '')}")
+
+    # Risk gauge
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=overall_score,
+        title={'text': "Greenwashing Risk Score"},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'bar': {'color': '#e74c3c' if overall_score >= 60 else '#ff9800' if overall_score >= 40 else '#4caf50'},
+            'steps': [
+                {'range': [0, 30], 'color': '#e8f5e9'},
+                {'range': [30, 60], 'color': '#fff3e0'},
+                {'range': [60, 100], 'color': '#ffebee'},
+            ],
+        }
+    ))
+    fig.update_layout(height=280)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # === Cross-check with existing data ===
+    if company_match:
+        st.markdown("---")
+        st.subheader("Cross-Check with Existing Data")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Our ML Risk Score",
+                      f"{company_match.get('risk_score', 'N/A'):.1f}/100")
+        with col2:
+            st.metric("Report Risk Score", f"{overall_score}/100")
+        with col3:
+            diff = overall_score - float(company_match.get('risk_score', 50))
+            st.metric("Discrepancy", f"{diff:+.1f}",
+                      delta=f"{'Report scores higher' if diff > 0 else 'Report scores lower'}",
+                      delta_color="inverse")
+        if abs(diff) > 20:
+            st.error(f"Significant discrepancy between report analysis ({overall_score}) "
+                     f"and ML model ({company_match.get('risk_score', 'N/A'):.1f}). "
+                     f"The report may be presenting a skewed picture.")
+
+    st.markdown("---")
+
+    # === SECTION 2: Claim-by-Claim Analysis ===
+    st.subheader("Claim-by-Claim Analysis")
+    st.markdown("Each ESG claim is extracted, categorized, and assessed for greenwashing risk:")
+
+    # Filter controls
+    col1, col2 = st.columns(2)
+    with col1:
+        filter_risk = st.multiselect("Filter by risk level",
+            ['HIGH', 'MEDIUM', 'LOW'], default=['HIGH', 'MEDIUM', 'LOW'])
+    with col2:
+        filter_cat = st.multiselect("Filter by category",
+            ['Environmental', 'Social', 'Governance'],
+            default=['Environmental', 'Social', 'Governance'])
+
+    for i, claim in enumerate(claims):
+        risk = claim.get('risk_level', 'MEDIUM')
+        category = claim.get('category', 'Unknown')
+
+        if risk not in filter_risk or category not in filter_cat:
+            continue
+
+        css_class = f"claim-{risk.lower()}"
+        label_class = f"label-{risk.lower()}"
+        icon = '🔴' if risk == 'HIGH' else '🟡' if risk == 'MEDIUM' else '🟢'
+        evidence = claim.get('evidence_type', 'Unknown')
+
+        st.markdown(
+            f'<div class="{css_class}">'
+            f'<span class="claim-label {label_class}">{risk}</span>'
+            f'<span class="claim-label" style="background:#3498db;">{category}</span>'
+            f'<span class="claim-label" style="background:#8e44ad;">{evidence}</span>'
+            f'<br><br>'
+            f'{icon} <b>Claim:</b> "<i>{claim.get("claim_text", "")}</i>"'
+            f'<br><br>'
+            f'<b>Issue:</b> {claim.get("issue", "")}'
+            f'<br>'
+            f'<b>Explanation:</b> {claim.get("explanation", "")}'
+            f'</div>',
+            unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # === SECTION 3: Risk Distribution Chart ===
+    st.subheader("Claims Risk Distribution")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        risk_counts = pd.DataFrame([
+            {'Risk Level': c.get('risk_level', 'MEDIUM')} for c in claims
+        ])['Risk Level'].value_counts().reset_index()
+        risk_counts.columns = ['Risk Level', 'Count']
+        fig = px.pie(risk_counts, values='Count', names='Risk Level',
+                     color='Risk Level',
+                     color_discrete_map={'HIGH': '#e74c3c', 'MEDIUM': '#ff9800', 'LOW': '#4caf50'},
+                     title='Claims by Risk Level', hole=0.4)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        cat_counts = pd.DataFrame([
+            {'Category': c.get('category', 'Unknown')} for c in claims
+        ])['Category'].value_counts().reset_index()
+        cat_counts.columns = ['Category', 'Count']
+        fig = px.bar(cat_counts, x='Category', y='Count',
+                     color='Category',
+                     color_discrete_map={'Environmental': '#2ecc71', 'Social': '#3498db',
+                                         'Governance': '#9b59b6'},
+                     title='Claims by ESG Category')
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Evidence type breakdown
+    evidence_counts = pd.DataFrame([
+        {'Evidence': c.get('evidence_type', 'Unknown')} for c in claims
+    ])['Evidence'].value_counts().reset_index()
+    evidence_counts.columns = ['Evidence Type', 'Count']
+    fig = px.bar(evidence_counts, x='Evidence Type', y='Count',
+                 color='Evidence Type',
+                 color_discrete_map={
+                     'Vague Promise': '#e74c3c', 'Missing Data': '#ff9800',
+                     'Contradicts Data': '#c0392b', 'Unverified': '#f39c12',
+                     'Credible': '#27ae60',
+                 },
+                 title='Evidence Type Distribution')
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # === SECTION 4: Red Flags & Positive Signals ===
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Red Flags")
+        red_flags = result.get('red_flags', [])
+        if red_flags:
+            for flag in red_flags:
+                st.markdown(f'<div class="red-flag-box">⚠ {flag}</div>',
+                            unsafe_allow_html=True)
+        else:
+            st.success("No major red flags detected.")
+
+    with col2:
+        st.subheader("Positive Signals")
+        positives = result.get('positive_signals', [])
+        if positives:
+            for pos in positives:
+                st.markdown(f'<div class="positive-box">✓ {pos}</div>',
+                            unsafe_allow_html=True)
+        else:
+            st.info("No strong positive signals found.")
+
+    st.markdown("---")
+
+    # === SECTION 5: Recommendations ===
+    st.subheader("Recommendations")
+    recommendations = result.get('recommendations', [])
+    for i, rec in enumerate(recommendations, 1):
+        st.markdown(f"**{i}.** {rec}")
+
+    st.markdown("---")
+
+    # === SECTION 6: Export Results ===
+    st.subheader("Export Analysis")
+    export_data = json.dumps(result, indent=2, ensure_ascii=False)
+    st.download_button(
+        label="Download Full Analysis (JSON)",
+        data=export_data,
+        file_name=f"esg_analysis_{report_name.replace('.pdf', '')}.json",
+        mime="application/json",
+    )
+
+    # CSV export of claims
+    if claims:
+        claims_df = pd.DataFrame(claims)
+        csv_data = claims_df.to_csv(index=False)
+        st.download_button(
+            label="Download Claims Table (CSV)",
+            data=csv_data,
+            file_name=f"esg_claims_{report_name.replace('.pdf', '')}.csv",
+            mime="text/csv",
+        )
+
+
+# ============================================================================
+# PAGE 8: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -1715,6 +2315,8 @@ def main():
         page_company_search(data)
     elif page == "Real-Time Intelligence":
         page_realtime_intelligence(data)
+    elif page == "ESG Report Analyzer (AI)":
+        page_esg_report_analyzer(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
