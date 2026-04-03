@@ -20,6 +20,10 @@ import plotly.express as px                  # Plotly Express for interactive ch
 import plotly.graph_objects as go            # Plotly graph objects for custom charts
 from plotly.subplots import make_subplots    # Subplots for multi-panel figures
 import os                                    # File system operations
+import re                                    # Regular expressions
+import xml.etree.ElementTree as ET           # XML parsing for RSS feeds
+from datetime import datetime, timedelta     # Date handling
+from urllib.parse import quote               # URL encoding
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -118,6 +122,8 @@ def render_sidebar(data):
             "Model Performance",
             "Feature Importance",
             "Company Deep Dive",
+            "Company Search & Analysis",
+            "Real-Time Intelligence",
             "SHAP Explanations",
         ]
     )
@@ -663,7 +669,431 @@ def page_company_deep_dive(data):
 
 
 # ============================================================================
-# PAGE 5: SHAP EXPLANATIONS (all interactive)
+# PAGE 5: COMPANY SEARCH & ANALYSIS
+# ============================================================================
+
+def page_company_search(data):
+    """Search any company by name and get a full greenwashing analysis report."""
+
+    st.title("Company Search & Analysis")
+    st.markdown("Type a company name to get a **complete greenwashing risk analysis report**.")
+
+    df = data['risk_scores']
+    fm = data['feature_matrix']
+    pred = data['predictions']
+
+    if df.empty or fm.empty:
+        st.warning("Data not available. Run `python model_pipeline.py` first.")
+        return
+
+    # --- Search box with autocomplete ---
+    company_names = sorted(df['company_name'].dropna().unique().tolist())
+    search_query = st.text_input(
+        "Search Company Name",
+        placeholder="Type company name (e.g., Apple, Tesla, Microsoft)...",
+    )
+
+    # Filter matching companies
+    if search_query:
+        matches = [c for c in company_names if search_query.lower() in c.lower()]
+    else:
+        matches = []
+
+    if search_query and not matches:
+        st.error(f"No company found matching '{search_query}'. Try a different name.")
+        st.markdown("**Available companies (sample):**")
+        st.write(", ".join(company_names[:20]) + "...")
+        return
+
+    if not search_query:
+        st.info("Start typing a company name above to search.")
+        # Show top 10 highest risk companies as suggestions
+        st.subheader("Top 10 Highest Risk Companies")
+        top10 = df.nlargest(10, 'risk_score')[['company_name', 'sector', 'risk_score', 'risk_tier']]
+        st.dataframe(top10.reset_index(drop=True), use_container_width=True)
+        return
+
+    # Let user pick from matches if multiple
+    if len(matches) == 1:
+        selected = matches[0]
+    else:
+        selected = st.selectbox(f"Found {len(matches)} matches -- select one:", matches)
+
+    if not selected:
+        return
+
+    # ===================== FULL ANALYSIS REPORT =====================
+    company_risk = df[df['company_name'] == selected].iloc[0]
+    company_fm_row = fm[fm['company_name'] == selected]
+
+    if company_fm_row.empty:
+        st.error(f"Feature data not found for {selected}.")
+        return
+
+    company_fm = company_fm_row.iloc[0]
+
+    st.markdown("---")
+    st.header(f"Analysis Report: {selected}")
+
+    # --- Section 1: Overview KPIs ---
+    st.subheader("1. Risk Overview")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        risk_score = company_risk['risk_score']
+        st.metric("Risk Score", f"{risk_score:.1f}/100",
+                  delta=f"{risk_score - df['risk_score'].mean():.1f} vs avg",
+                  delta_color="inverse")
+    with col2:
+        st.metric("Risk Tier", str(company_risk.get('risk_tier', 'N/A')))
+    with col3:
+        st.metric("ESG Risk Score", f"{company_risk.get('total_esg_risk_score', 0):.1f}")
+    with col4:
+        st.metric("Controversy Score", f"{company_risk.get('controversy_score', 0):.1f}")
+    with col5:
+        rank_val = company_risk.get('rank', 'N/A')
+        st.metric("Risk Rank", f"#{int(rank_val)}/{len(df)}" if rank_val != 'N/A' else 'N/A')
+
+    # --- Verdict banner ---
+    if risk_score >= 60:
+        st.error(f"HIGH GREENWASHING RISK -- {selected} scores {risk_score:.1f}/100. "
+                 f"Multiple indicators suggest potential greenwashing behavior.")
+    elif risk_score >= 40:
+        st.warning(f"MODERATE GREENWASHING RISK -- {selected} scores {risk_score:.1f}/100. "
+                   f"Some indicators warrant further investigation.")
+    else:
+        st.success(f"LOW GREENWASHING RISK -- {selected} scores {risk_score:.1f}/100. "
+                   f"ESG claims appear largely consistent with actual performance.")
+
+    st.markdown("---")
+
+    # --- Section 2: Risk Score Breakdown ---
+    st.subheader("2. Risk Score Component Breakdown")
+    st.markdown("The final risk score is a weighted blend of 5 components:")
+
+    components = {
+        'Proxy Score (40%)': company_risk.get('comp_proxy', 0),
+        'Linguistic GW Signal (15%)': company_risk.get('comp_linguistic', 0),
+        'ESG-Controversy Gap (15%)': company_risk.get('comp_divergence', 0),
+        'Low Claim Credibility (15%)': company_risk.get('comp_credibility_inv', 0),
+        'Controversy Ratio (15%)': company_risk.get('comp_controversy_ratio', 0),
+    }
+
+    comp_df = pd.DataFrame({
+        'Component': list(components.keys()),
+        'Score (0-100)': [float(v) if pd.notna(v) else 0.0 for v in components.values()],
+    })
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        fig = px.bar(
+            comp_df, x='Component', y='Score (0-100)',
+            color='Score (0-100)', color_continuous_scale='RdYlGn_r',
+            text='Score (0-100)',
+            title=f'What drives {selected}\'s risk score?',
+        )
+        fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+        fig.update_layout(yaxis_range=[0, 110], showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        # Gauge
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=risk_score,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "Overall Risk"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "darkred"},
+                'steps': [
+                    {'range': [0, 20], 'color': '#2ecc71'},
+                    {'range': [20, 40], 'color': '#82e0aa'},
+                    {'range': [40, 60], 'color': '#f4d03f'},
+                    {'range': [60, 80], 'color': '#e67e22'},
+                    {'range': [80, 100], 'color': '#e74c3c'},
+                ],
+            }
+        ))
+        fig.update_layout(height=300)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- Section 3: ESG Pillar Analysis ---
+    st.subheader("3. ESG Pillar Analysis")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Pillar scores bar chart
+        pillar_data = {
+            'Pillar': ['Environmental', 'Social', 'Governance', 'Total ESG', 'Controversy'],
+            'Score': [
+                float(company_fm.get('env_risk_score', 0)),
+                float(company_fm.get('social_risk_score', 0)),
+                float(company_fm.get('gov_risk_score', 0)),
+                float(company_fm.get('total_esg_risk_score', 0)),
+                float(company_fm.get('controversy_score', 0)),
+            ],
+            'Population Avg': [
+                float(fm['env_risk_score'].mean()) if 'env_risk_score' in fm.columns else 0,
+                float(fm['social_risk_score'].mean()) if 'social_risk_score' in fm.columns else 0,
+                float(fm['gov_risk_score'].mean()) if 'gov_risk_score' in fm.columns else 0,
+                float(fm['total_esg_risk_score'].mean()) if 'total_esg_risk_score' in fm.columns else 0,
+                float(fm['controversy_score'].mean()) if 'controversy_score' in fm.columns else 0,
+            ],
+        }
+        pillar_df = pd.DataFrame(pillar_data)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name=selected, x=pillar_df['Pillar'], y=pillar_df['Score'],
+                             marker_color='#e74c3c'))
+        fig.add_trace(go.Bar(name='Population Avg', x=pillar_df['Pillar'], y=pillar_df['Population Avg'],
+                             marker_color='#3498db', opacity=0.6))
+        fig.update_layout(barmode='group', title='ESG Scores vs Population Average',
+                          yaxis_title='Score', height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        # Radar chart
+        categories = ['Environmental', 'Social', 'Governance', 'Controversy']
+        cols_for_radar = ['env_risk_score', 'social_risk_score', 'gov_risk_score', 'controversy_score']
+
+        company_vals = []
+        avg_vals = []
+        for col in cols_for_radar:
+            if col in fm.columns:
+                cmin, cmax = fm[col].min(), fm[col].max()
+                company_vals.append(round((company_fm.get(col, 0) - cmin) / (cmax - cmin + 1e-8), 3))
+                avg_vals.append(round((fm[col].mean() - cmin) / (cmax - cmin + 1e-8), 3))
+            else:
+                company_vals.append(0)
+                avg_vals.append(0)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=company_vals + [company_vals[0]],
+            theta=categories + [categories[0]],
+            fill='toself', name=selected,
+            line=dict(color='#e74c3c'), opacity=0.7,
+        ))
+        fig.add_trace(go.Scatterpolar(
+            r=avg_vals + [avg_vals[0]],
+            theta=categories + [categories[0]],
+            fill='toself', name='Population Avg',
+            line=dict(color='#3498db', dash='dash'), opacity=0.4,
+        ))
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+            title='ESG Profile Radar (normalized 0-1)', height=400,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Pillar imbalance insight
+    imbalance = company_fm.get('pillar_imbalance_score', 0)
+    avg_imbalance = fm['pillar_imbalance_score'].mean() if 'pillar_imbalance_score' in fm.columns else 0
+    if imbalance > avg_imbalance * 1.5:
+        st.warning(f"Pillar Imbalance Score: **{imbalance:.2f}** (avg: {avg_imbalance:.2f}) -- "
+                   f"This company has significantly uneven ESG performance across pillars, "
+                   f"which can indicate selective reporting.")
+
+    st.markdown("---")
+
+    # --- Section 4: NLP & Linguistic Analysis ---
+    st.subheader("4. NLP & Linguistic Analysis")
+    st.markdown("How does this company's corporate text compare to population norms?")
+
+    nlp_features = {
+        'Greenwashing Signal Score': ('greenwashing_signal_score', 'Higher = more greenwashing language'),
+        'Vague Language Count': ('vague_language_count', 'Vague terms like "committed to", "striving for"'),
+        'Hedge Language Count': ('hedge_language_count', 'Hedging: "approximately", "potentially"'),
+        'Superlative Count': ('superlative_count', '"Industry-leading", "world-class"'),
+        'Future Language Count': ('future_language_count', '"Will", "plan to", "by 2030"'),
+        'Concrete Evidence Count': ('concrete_evidence_count', '"Reduced by X%", "ISO certified"'),
+        'Vague to Concrete Ratio': ('vague_to_concrete_ratio', 'Higher = more vague vs concrete'),
+        'Text Sentiment Polarity': ('text_polarity', 'Positive bias in ESG text'),
+        'Flesch Reading Ease': ('flesch_reading_ease', 'Lower = harder to read (obfuscation?)'),
+        'Lexical Diversity': ('lexical_diversity', 'Unique words / total words'),
+    }
+
+    nlp_rows = []
+    for label, (col, desc) in nlp_features.items():
+        val = company_fm.get(col, None)
+        avg = fm[col].mean() if col in fm.columns else None
+        if val is not None and avg is not None:
+            diff = val - avg
+            pct = (pd.Series(fm[col]).rank(pct=True).values[
+                fm.index[fm['company_name'] == selected][0]] * 100) if col in fm.columns else 50
+            nlp_rows.append({
+                'Feature': label,
+                'Value': round(float(val), 4),
+                'Population Avg': round(float(avg), 4),
+                'Difference': round(float(diff), 4),
+                'Percentile': f"{pct:.0f}th",
+                'Interpretation': desc,
+            })
+
+    if nlp_rows:
+        nlp_df = pd.DataFrame(nlp_rows)
+
+        # Horizontal bar chart comparing company vs average
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=nlp_df['Feature'], x=nlp_df['Value'], name=selected,
+            orientation='h', marker_color='#e74c3c',
+        ))
+        fig.add_trace(go.Bar(
+            y=nlp_df['Feature'], x=nlp_df['Population Avg'], name='Population Avg',
+            orientation='h', marker_color='#3498db', opacity=0.6,
+        ))
+        fig.update_layout(
+            barmode='group', title='NLP Features: Company vs Population',
+            xaxis_title='Value', height=500,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.dataframe(nlp_df, use_container_width=True)
+
+        # Linguistic verdict
+        gw_signal = company_fm.get('greenwashing_signal_score', 0)
+        vague = company_fm.get('vague_language_count', 0)
+        concrete = company_fm.get('concrete_evidence_count', 0)
+        if gw_signal > fm['greenwashing_signal_score'].quantile(0.75) if 'greenwashing_signal_score' in fm.columns else 0.5:
+            st.error(f"LINGUISTIC RED FLAG: Greenwashing signal score ({gw_signal:.3f}) is in the "
+                     f"top 25%. Uses {int(vague)} vague terms vs only {int(concrete)} concrete evidence points.")
+        elif gw_signal > fm['greenwashing_signal_score'].median() if 'greenwashing_signal_score' in fm.columns else 0.5:
+            st.warning(f"Linguistic caution: Greenwashing signal ({gw_signal:.3f}) is above median. "
+                       f"Vague terms: {int(vague)}, Concrete evidence: {int(concrete)}.")
+        else:
+            st.success(f"Linguistic profile looks clean: GW signal ({gw_signal:.3f}) is below median. "
+                       f"Concrete evidence ({int(concrete)}) outweighs vague language ({int(vague)}).")
+
+    st.markdown("---")
+
+    # --- Section 5: Key Greenwashing Indicators ---
+    st.subheader("5. Key Greenwashing Indicators")
+
+    indicators = {
+        'Controversy-Risk Ratio': ('controversy_risk_ratio',
+            'Controversy relative to ESG risk. High = controversies not reflected in ESG score'),
+        'ESG-Controversy Divergence': ('esg_controversy_divergence',
+            'z(controversy) - z(ESG). High = claims low risk but has high controversy'),
+        'Risk-Controversy Mismatch': ('risk_controversy_mismatch',
+            'Binary flag: ESG risk and controversy levels are inconsistent'),
+        'Combined Anomaly Score': ('combined_anomaly_score',
+            'Statistical anomaly detection across multiple features'),
+        'Pillar Imbalance Score': ('pillar_imbalance_score',
+            'Std dev across E/S/G pillars. High = uneven performance'),
+        'ESG Sector Z-Score': ('esg_sector_zscore',
+            'How this company compares to its sector peers'),
+    }
+
+    indicator_rows = []
+    for label, (col, desc) in indicators.items():
+        val = company_fm.get(col, None)
+        if val is not None and col in fm.columns:
+            q75 = fm[col].quantile(0.75)
+            status = "HIGH" if float(val) > float(q75) else "Normal"
+            indicator_rows.append({
+                'Indicator': label,
+                'Value': round(float(val), 4),
+                'Threshold (75th pct)': round(float(q75), 4),
+                'Status': status,
+                'Description': desc,
+            })
+
+    if indicator_rows:
+        ind_df = pd.DataFrame(indicator_rows)
+        # Color the status column
+        def color_status(val):
+            if val == 'HIGH':
+                return 'background-color: #ffcccc; color: red; font-weight: bold'
+            return 'background-color: #ccffcc; color: green'
+
+        st.dataframe(ind_df.style.applymap(color_status, subset=['Status']),
+                     use_container_width=True)
+
+        high_count = sum(1 for r in indicator_rows if r['Status'] == 'HIGH')
+        st.markdown(f"**{high_count} out of {len(indicator_rows)} indicators** are above the 75th percentile threshold.")
+
+    st.markdown("---")
+
+    # --- Section 6: Sector Peer Comparison ---
+    st.subheader("6. Sector Peer Comparison")
+    sector = company_risk.get('sector', None)
+    if sector:
+        peers = df[df['sector'] == sector].copy().sort_values('risk_score', ascending=False)
+        peers['highlight'] = peers['company_name'] == selected
+        peer_rank = list(peers['company_name']).index(selected) + 1
+
+        st.markdown(f"**{selected}** ranks **#{peer_rank} out of {len(peers)}** "
+                    f"in the **{sector}** sector by risk score.")
+
+        fig = px.bar(
+            peers, x='company_name', y='risk_score',
+            color='highlight',
+            color_discrete_map={True: '#e74c3c', False: '#bdc3c7'},
+            title=f'Risk Scores in {sector} Sector',
+            labels={'risk_score': 'Risk Score', 'company_name': 'Company'},
+            hover_data=['risk_tier'],
+        )
+        fig.update_layout(showlegend=False, xaxis_tickangle=-45, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Sector stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Sector Avg Risk", f"{peers['risk_score'].mean():.1f}")
+        with col2:
+            st.metric("Company Risk", f"{risk_score:.1f}",
+                      delta=f"{risk_score - peers['risk_score'].mean():.1f} vs sector avg",
+                      delta_color="inverse")
+        with col3:
+            st.metric("Sector Rank", f"#{peer_rank}/{len(peers)}")
+
+    st.markdown("---")
+
+    # --- Section 7: Model Prediction Details ---
+    st.subheader("7. Model Prediction Summary")
+    if not pred.empty:
+        pred_row = pred[pred['company_name'] == selected]
+        if not pred_row.empty:
+            pred_row = pred_row.iloc[0]
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                proxy = pred_row.get('gw_proxy_score', 0)
+                st.metric("Proxy Score (0-5)", f"{int(proxy)}/5")
+            with col2:
+                label = pred_row.get('gw_label_binary', 0)
+                st.metric("Binary Label", "FLAGGED" if label == 1 else "NOT FLAGGED")
+            with col3:
+                st.metric("ESG Risk", f"{pred_row.get('total_esg_risk_score', 'N/A')}")
+
+            if int(proxy) >= 2:
+                st.error(f"This company triggered **{int(proxy)} out of 5** greenwashing indicators "
+                         f"and is classified as a **greenwashing risk**.")
+            else:
+                st.success(f"This company triggered only **{int(proxy)} out of 5** greenwashing indicators "
+                           f"and is classified as **low risk**.")
+
+    # --- Section 8: Full Feature Profile (expandable) ---
+    with st.expander("View Full Feature Profile (all 161 features)", expanded=False):
+        all_features = {}
+        for col in fm.columns:
+            if col not in ['symbol', 'company_name', 'sector', 'industry', 'description', 'source']:
+                val = company_fm.get(col)
+                if val is not None and not pd.isna(val):
+                    all_features[col] = round(float(val), 6)
+
+        full_df = pd.DataFrame({
+            'Feature': list(all_features.keys()),
+            'Value': list(all_features.values()),
+        })
+        st.dataframe(full_df, use_container_width=True, height=600)
+
+
+# ============================================================================
+# PAGE 6: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -780,6 +1210,8 @@ def main():
         page_feature_importance(data)
     elif page == "Company Deep Dive":
         page_company_deep_dive(data)
+    elif page == "Company Search & Analysis":
+        page_company_search(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
