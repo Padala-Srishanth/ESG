@@ -13,8 +13,9 @@ A comprehensive machine learning pipeline that detects corporate greenwashing by
 5. [Detailed File Breakdowns](#detailed-file-breakdowns)
 6. [Datasets](#datasets)
 7. [Feature Engineering Summary](#feature-engineering-summary)
-8. [How to Run](#how-to-run)
-9. [Dependencies](#dependencies)
+8. [New Features (Advanced Dashboard Modules)](#new-features-advanced-dashboard-modules)
+9. [How to Run](#how-to-run)
+10. [Dependencies](#dependencies)
 
 ---
 
@@ -1229,7 +1230,291 @@ Interactive web UI with 5 pages, all charts built with **Plotly** (zoomable, hov
 | **Model Performance** | Grouped bar chart, radar comparison, training time, metrics table |
 | **Feature Importance** | Interactive bar chart, treemap by category, cumulative importance curve |
 | **Company Deep Dive** | Component breakdown, gauge meter, radar profile, sector peer comparison |
+| **Company Search & Analysis** | Text search, 8-section report, NLP analysis, indicator table, sector ranking |
+| **Real-Time Intelligence** | Live news feed, sentiment timeline, risk alerts, portfolio monitor |
+| **ESG Report Analyzer (AI)** | PDF upload, Gemini LLM claim extraction, greenwashing highlighting |
+| **Report Generator** | Single/batch/portfolio HTML reports, downloadable, professional formatting |
+| **Advanced Explainability** | Counterfactual explanations, what-if sliders, sensitivity curves |
 | **SHAP Explanations** | Feature impact bars, distribution explorer, correlation heatmap |
+
+---
+
+## New Features (Advanced Dashboard Modules)
+
+The dashboard has been extended with **5 new pages** that add real-time intelligence, LLM-powered analysis, report generation, and advanced explainability beyond standard SHAP.
+
+---
+
+### 1. Company Search & Analysis
+
+**Purpose:** Search any company by name and get a complete 8-section greenwashing analysis report inside the dashboard.
+
+**How it works:**
+- User types a company name (e.g., "Apple", "Tesla") in a text search box
+- Auto-filters matching companies from the 480-company database
+- Generates a full analysis report on selection
+
+**8 Report Sections:**
+
+| Section | Content |
+|---------|---------|
+| Risk Overview | 5 KPI cards (score, tier, ESG risk, controversy, rank) + color-coded verdict |
+| Risk Breakdown | Bar chart of 5 weighted components + gauge chart |
+| ESG Pillar Analysis | Company vs Population bar chart + radar chart + imbalance warning |
+| NLP & Linguistic Analysis | 10 NLP features compared to population avg + linguistic red flag detection |
+| Key Greenwashing Indicators | 6 indicators vs 75th percentile thresholds (HIGH/Normal status) |
+| Sector Peer Comparison | Ranked bar chart within sector + sector rank |
+| Model Prediction Summary | Proxy score (0-5), binary label, flagged/not-flagged verdict |
+| Full Feature Profile | Expandable table with all 161 features |
+
+**Implementation details:**
+- NLP features compared include: greenwashing signal score, vague/hedge/superlative/future/concrete language counts, sentiment polarity, Flesch reading ease, lexical diversity
+- Percentile rank is computed in real-time using `pd.Series.rank(pct=True)`
+- Linguistic verdict uses quantile thresholds: top 25% = red flag, above median = caution, below median = clean
+- Sector peer comparison highlights selected company in red using Plotly color_discrete_map
+
+---
+
+### 2. Real-Time Intelligence
+
+**Purpose:** Monitor live ESG news sentiment for any company and compute real-time risk adjustments. Designed to function like a Bloomberg/AI-powered terminal.
+
+**Data Source:** Google News RSS (free, no API key required)
+```
+https://news.google.com/rss/search?q={company_name}+ESG+sustainability
+```
+- Uses Python's built-in `urllib.request` + `xml.etree.ElementTree` for RSS parsing
+- Fetches up to 15 latest ESG-related headlines per company
+- Falls back to realistic simulated headlines if network is unavailable
+
+**Live Sentiment Scoring:**
+- Custom ESG sentiment analyzer with 35+ positive words and 40+ negative words with domain-specific weights
+- VADER normalization formula: `compound = raw_sum / sqrt(raw_sum² + 15)`
+- Each headline receives a sentiment score from -1.0 (very negative) to +1.0 (very positive)
+
+**Risk Delta Calculation:**
+```python
+# Recency weighting (recent news matters more)
+recency_weight = exp(-age_hours / 72)      # 72-hour half-life
+weighted_sentiment = sentiment * recency_weight
+
+# Convert average sentiment to risk adjustment
+risk_delta = -avg_weighted_sentiment * 15   # Range: -15 to +15 points
+adjusted_risk = clamp(base_risk + risk_delta, 0, 100)
+```
+
+**5 Dashboard Sections:**
+
+| Section | Content |
+|---------|---------|
+| Breaking Risk Alerts | Color-coded alert banners: RED (risk jump ≥5), ORANGE (moderate shift), GREEN (improvement) |
+| Live Risk Gauge | Side-by-side gauge charts: Base Risk (model) vs Adjusted Risk (live) |
+| News Sentiment Timeline | Scatter plot of sentiment over time + histogram + pie chart breakdown |
+| Live News Feed | Color-coded cards per article: 🔴 negative, 🟢 positive, ⚪ neutral with source, age, score |
+| Portfolio Risk Monitor | Multi-company scanner with bar chart, Bloomberg-style ticker display, and alert summary |
+
+**Example alert output:**
+```
+ALERT: Tesla risk jumped from 32 → 47 (+15.0) due to recent negative ESG news coverage
+```
+
+---
+
+### 3. ESG Report Analyzer (AI-Powered)
+
+**Purpose:** Upload any PDF ESG/sustainability report and get an AI-powered greenwashing analysis with claim-by-claim assessment.
+
+**LLM Used:** Google Gemini 2.0 Flash (free tier: 15 RPM, 1,500 requests/day, $0 cost)
+
+**API Key Setup:**
+- Stored in `.env` file: `GEMINI_API_KEY=your_key_here`
+- Auto-loaded on dashboard startup using a custom `.env` parser
+- `.env` is in `.gitignore` to prevent accidental commits
+- Falls back to manual text input if `.env` is missing
+- Rule-based fallback available if no API key at all
+
+**How to get the API key:**
+1. Go to https://aistudio.google.com/apikey
+2. Click "Create API Key"
+3. Copy and paste into `.env` file
+
+**Pipeline:**
+
+```
+PDF Upload → PyPDF2 text extraction → Gemini prompt construction → API call → JSON parsing → Display
+```
+
+**Gemini Prompt Design:**
+- System role: "Expert ESG analyst specializing in greenwashing detection"
+- Structured JSON output format with 8 fields
+- Analysis rules: extract 8-15 claims, assess vague language, check verification, cross-reference with company data
+- Temperature: 0.3 (low creativity, high factual accuracy)
+- Max tokens: 8,000
+
+**For each claim, Gemini returns:**
+- `claim_text`: exact quote from the report
+- `category`: Environmental / Social / Governance
+- `risk_level`: HIGH / MEDIUM / LOW
+- `issue`: specific greenwashing concern
+- `explanation`: detailed reasoning
+- `evidence_type`: Vague Promise / Missing Data / Contradicts Data / Unverified / Credible
+
+**Display:**
+- Overall risk gauge (0-100)
+- Color-coded claim cards:
+  - 🔴 RED border = HIGH risk (suspicious greenwashing)
+  - 🟡 YELLOW border = MEDIUM risk (needs verification)
+  - 🟢 GREEN border = LOW risk (credible claim)
+- Each card shows: risk badge, category badge, evidence type badge, claim text, issue, explanation
+- Risk distribution pie chart + category bar chart + evidence type breakdown
+- Red flags box (dark theme) + Positive signals box
+- Cross-check with existing ML data if company is in the 480-company database
+- Export: JSON full analysis + CSV claims table
+
+**Fallback (rule-based, no API key needed):**
+- Uses regex patterns for vague language (12 patterns), superlatives (4), future language (4), concrete evidence (4)
+- Categorizes by keyword matching (environmental, social, governance keywords)
+- Computes risk score: `(high_risk_claims / total_claims) * 100 + 20`
+
+---
+
+### 4. Report Generator
+
+**Purpose:** Generate professional, downloadable HTML reports for any company, batch of companies, or the full portfolio.
+
+**3 Report Modes:**
+
+| Mode | Input | Output |
+|------|-------|--------|
+| **Single Company** | Select 1 company | Full 7-section HTML report + summary CSV |
+| **Batch** | Select multiple companies | Individual HTML report per company + batch summary CSV |
+| **Full Portfolio** | All 480 companies | Portfolio overview with sector breakdown + top 20 highest risk |
+
+**Single Company Report Sections:**
+
+1. **Executive Summary** -- Risk score, tier, verdict banner (color-coded based on risk level), model prediction (flagged/not flagged), proxy score
+2. **Risk Score Breakdown** -- 5 components with visual progress bars and percentage weights (40% proxy, 15% each for linguistic, divergence, credibility, controversy ratio)
+3. **ESG Pillar Analysis** -- Environmental/Social/Governance cards with scores, pillar imbalance, controversy divergence, risk-controversy mismatch flag
+4. **NLP & Linguistic Analysis** -- 4 KPI cards (GW signal, vague count, concrete count, sentiment) + 7-row table of linguistic features with risk implications
+5. **Key Greenwashing Indicators** -- 5 indicators vs 75th percentile thresholds with HIGH/Normal status and descriptions
+6. **Sector Peer Comparison** -- Rank within sector, company score vs sector average, delta
+7. **Methodology** -- Data sources, company count, feature count, model performance, 7-phase pipeline table
+
+**Implementation details:**
+- Reports are pure HTML+CSS (no JavaScript dependencies)
+- Professional styling: gradient cover page, KPI grid layout, color-coded tables, progress bars
+- All data pulled from `risk_scores`, `feature_matrix`, and `predictions` DataFrames
+- Previewed in dashboard using `st.components.v1.html(html, height=800, scrolling=True)`
+- Download via `st.download_button` with `mime="text/html"`
+- Portfolio report includes sector-level aggregation with `groupby().agg()`
+
+**Full Portfolio Report includes:**
+- 4 KPI cards: Total companies, High Risk count, Moderate count, Low Risk count
+- Sector summary table: companies, avg risk, max risk, high risk count per sector
+- Top 20 highest risk companies table
+
+---
+
+### 5. Advanced Explainability (Beyond SHAP)
+
+**Purpose:** Go beyond standard SHAP with counterfactual explanations, interactive what-if analysis, and feature sensitivity curves. Shows true ML maturity and interpretability.
+
+**Technical Foundation:**
+- Trains a **lightweight Gradient Boosting model** on startup (cached with `@st.cache_resource`)
+- Uses the same proxy label construction as `model_training.py` (5 indicators, threshold = 75th percentile, label = score ≥ 2)
+- Model: `GradientBoostingClassifier(n_estimators=200, max_depth=5, lr=0.1)`
+- All predictions use `model.predict_proba()` for probability output
+
+**3 Tabs:**
+
+#### Tab 1: Counterfactual Explanations
+
+**Question answered:** *"What is the smallest change to ONE feature that would flip this company's prediction?"*
+
+**Algorithm:**
+```
+For each of the top 15 important features:
+    1. Get current value for this company
+    2. Determine search direction:
+       - If FLAGGED → search toward population minimum (reduce risk)
+       - If NOT FLAGGED → search toward population maximum (increase risk)
+    3. Generate 30 evenly-spaced test values from current → extreme
+    4. For each test value:
+       - Replace ONLY this feature in the company's feature vector
+       - Scale with StandardScaler → predict with model
+       - If prediction class FLIPS → record as counterfactual, stop search
+    5. Compute change magnitude in standard deviations for cross-feature comparison
+Sort all counterfactuals by |change_in_std| ascending → smallest = easiest to achieve
+```
+
+**Display:**
+- Highlighted "Easiest Path" card: *"If controversy_risk_ratio ↓ from 0.42 to 0.18 → Risk becomes NOT FLAGGED"*
+- All counterfactuals listed with current → required values, change in std deviations, resulting probability
+- Bar chart ranking features by required change magnitude
+
+**Example output:**
+```
+EASIEST PATH TO LOW RISK:
+If controversy_risk_ratio decreased from 0.4200 to 0.1800 ↓
+→ Risk becomes NOT FLAGGED (probability: 32.1%)
+Change: -0.2400 (-1.2 std deviations)
+```
+
+#### Tab 2: What-If Sensitivity Sliders
+
+**Question answered:** *"If I change these feature values right now, what happens to the prediction?"*
+
+**Algorithm:**
+```
+1. User selects up to 8 features from top 15
+2. Interactive sliders generated with range = [1st percentile, 99th percentile]
+3. On every slider drag:
+   a. Copy company's original 161-feature vector
+   b. Replace modified features with slider values
+   c. StandardScaler.transform(modified_vector)
+   d. model.predict_proba() → new probability
+   e. model.predict() → new class (0 or 1)
+4. Display: Before vs After comparison
+```
+
+**Display:**
+- Sliders with current value label and change delta
+- Before/After KPI cards: probability, prediction label
+- "PREDICTION FLIPPED!" alert when crossing 50% threshold
+- Side-by-side gauge charts (current vs modified)
+- Feature changes summary table
+
+#### Tab 3: Feature Sensitivity Analysis
+
+**Question answered:** *"How sensitive is this company's prediction to each feature across its full range?"*
+
+**Algorithm:**
+```
+For each selected feature (up to 6):
+    1. Get population range: 2nd percentile → 98th percentile
+    2. Generate 50 evenly-spaced test values across this range
+    3. For each of 50 values:
+       - Copy company's vector, replace only this feature
+       - Scale → predict probability
+    4. Plot: X = feature value, Y = greenwashing probability
+    5. Mark current company position with red star
+    6. Record prob_at_min and prob_at_max
+    7. Sensitivity Range = |prob_at_max - prob_at_min|
+    8. Can Flip? = YES if 50% threshold is crossed within the range
+```
+
+**Display:**
+- Stacked sensitivity curves (one subplot per feature) using `plotly.subplots.make_subplots`
+- Red star = current company position
+- Dashed line at 50% = decision boundary
+- Summary table: sensitivity range, can flip, prob at extremes
+- Bar chart ranking features by sensitivity magnitude
+
+**How to read the curves:**
+- Steep S-curve = feature is critical, small changes flip prediction
+- Flat line = feature barely matters for this company
+- Star above 50% line = company is currently flagged on this axis
+- Star below 50% line = company is currently safe
 
 ---
 
@@ -1238,7 +1523,12 @@ Interactive web UI with 5 pages, all charts built with **Plotly** (zoomable, hov
 ### Prerequisites
 
 ```bash
-pip install pandas numpy scipy scikit-learn openpyxl xgboost matplotlib seaborn shap plotly streamlit
+pip install -r requirements.txt
+```
+
+Or manually:
+```bash
+pip install pandas numpy scipy scikit-learn openpyxl xgboost matplotlib seaborn shap plotly streamlit google-generativeai PyPDF2 requests
 ```
 
 ### Option 1: Run Everything (Single Command)
@@ -1270,6 +1560,14 @@ python risk_scoring.py
 # Phase 6: Launch Dashboard
 python -m streamlit run streamlit_dashboard.py
 ```
+
+### Setup Gemini API Key (for ESG Report Analyzer)
+
+```bash
+# Create .env file in project root
+echo GEMINI_API_KEY=your_api_key_here > .env
+```
+Get free key at: https://aistudio.google.com/apikey (no billing required)
 
 ### Quick Verification
 
@@ -1307,6 +1605,9 @@ print(mm[['model', 'f1_score', 'roc_auc']])
 | plotly | >= 5.0 | Interactive charts (dashboard) |
 | streamlit | >= 1.25 | Web dashboard framework |
 | openpyxl | >= 3.0 | Reading Excel (.xlsx) files |
+| google-generativeai | >= 0.5 | Google Gemini LLM API (ESG Report Analyzer) |
+| PyPDF2 | >= 3.0 | PDF text extraction (report upload) |
+| requests | >= 2.28 | HTTP requests (news fetching) |
 
 ---
 
@@ -1315,14 +1616,18 @@ print(mm[['model', 'f1_score', 'roc_auc']])
 | Metric | Value |
 |--------|-------|
 | Total Python files | 15 |
-| Total lines of code | ~12,000+ |
+| Total lines of code | ~15,000+ |
 | Processed output files | 25 |
-| Visualization plots | 8 |
+| Visualization plots | 8 static + all interactive Plotly charts |
 | Companies analyzed | 480 |
-| Features engineered | 121 (+43 scaled) |
+| Features engineered | 121 (+43 scaled = 161 total) |
 | ML models trained | 6 (5 supervised + 1 unsupervised) |
 | Best model F1 score | 0.9682 |
 | Best model ROC-AUC | 0.9979 |
 | Greenwashing flagged | 145/480 (30.2%) |
 | High risk companies | 9/480 (1.9%) |
 | Pipeline execution time | ~5 minutes |
+| Dashboard pages | 10 (5 core + 5 advanced) |
+| LLM integration | Google Gemini 2.0 Flash (free tier) |
+| Real-time data source | Google News RSS (free, no API key) |
+| Report formats | HTML (downloadable, printable to PDF) |
