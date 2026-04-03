@@ -137,6 +137,7 @@ def render_sidebar(data):
             "Real-Time Intelligence",
             "ESG Report Analyzer (AI)",
             "Report Generator",
+            "Advanced Explainability",
             "SHAP Explanations",
         ]
     )
@@ -2781,7 +2782,590 @@ def page_report_generator(data):
 
 
 # ============================================================================
-# PAGE 9: SHAP EXPLANATIONS (all interactive)
+# PAGE 9: ADVANCED EXPLAINABILITY (Counterfactuals + What-If)
+# ============================================================================
+
+@st.cache_resource
+def _train_lightweight_model(fm_path, processed_dir):
+    """Train a lightweight Gradient Boosting model for live predictions."""
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.preprocessing import StandardScaler
+
+    fm = pd.read_csv(fm_path)
+
+    # Construct proxy labels (same logic as model_training.py)
+    indicator_cols = []
+    for col in ['esg_controversy_divergence', 'greenwashing_signal_score',
+                'controversy_risk_ratio', 'combined_anomaly_score']:
+        if col in fm.columns:
+            threshold = fm[col].quantile(0.75)
+            fm[f'_ind_{col}'] = (fm[col] > threshold).astype(int)
+            indicator_cols.append(f'_ind_{col}')
+
+    if 'risk_controversy_mismatch' in fm.columns:
+        fm['_ind_mismatch'] = fm['risk_controversy_mismatch'].fillna(0).astype(int)
+        indicator_cols.append('_ind_mismatch')
+
+    fm['_proxy_score'] = fm[indicator_cols].sum(axis=1)
+    fm['_label'] = (fm['_proxy_score'] >= 2).astype(int)
+
+    # Prepare features
+    drop_cols = ['symbol', 'company_name', 'sector', 'industry', 'description',
+                 'source'] + indicator_cols + ['_proxy_score', '_label']
+    feature_cols = [c for c in fm.columns if c not in drop_cols
+                    and fm[c].dtype in ['float64', 'int64', 'float32', 'int32']]
+
+    X = fm[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+    y = fm['_label']
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    model = GradientBoostingClassifier(
+        n_estimators=200, max_depth=5, learning_rate=0.1, random_state=42
+    )
+    model.fit(X_scaled, y)
+
+    return model, scaler, feature_cols, fm
+
+
+def _compute_risk_score_from_features(row, fm_population):
+    """Compute a simplified risk score from feature values."""
+    score_components = []
+
+    # Component 1: Proxy-like indicators
+    indicators = 0
+    if 'esg_controversy_divergence' in row and 'esg_controversy_divergence' in fm_population.columns:
+        if row['esg_controversy_divergence'] > fm_population['esg_controversy_divergence'].quantile(0.75):
+            indicators += 1
+    if 'greenwashing_signal_score' in row and 'greenwashing_signal_score' in fm_population.columns:
+        if row['greenwashing_signal_score'] > fm_population['greenwashing_signal_score'].quantile(0.75):
+            indicators += 1
+    if 'controversy_risk_ratio' in row and 'controversy_risk_ratio' in fm_population.columns:
+        if row['controversy_risk_ratio'] > fm_population['controversy_risk_ratio'].quantile(0.75):
+            indicators += 1
+    if 'combined_anomaly_score' in row and 'combined_anomaly_score' in fm_population.columns:
+        if row['combined_anomaly_score'] > fm_population['combined_anomaly_score'].quantile(0.75):
+            indicators += 1
+    if row.get('risk_controversy_mismatch', 0) > 0:
+        indicators += 1
+
+    return (indicators / 5) * 100
+
+
+def page_advanced_explainability(data):
+    """Advanced Explainability: Counterfactuals + What-If Sensitivity Analysis."""
+
+    st.markdown("""
+    <style>
+    .explain-header {
+        background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+    }
+    .explain-header h1 { color: white; margin: 0; font-family: monospace; }
+    .explain-header p { color: #bde0fe; margin: 5px 0 0 0; font-size: 14px; }
+    .counterfactual-card {
+        background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+        padding: 18px; border-radius: 10px; margin: 8px 0;
+        border-left: 5px solid #0284c7;
+    }
+    .cf-arrow { color: #0284c7; font-size: 20px; font-weight: bold; }
+    .cf-result-good {
+        background: #f0fdf4; padding: 15px; border-radius: 10px;
+        border: 2px solid #22c55e; text-align: center; margin: 10px 0;
+    }
+    .cf-result-bad {
+        background: #fef2f2; padding: 15px; border-radius: 10px;
+        border: 2px solid #ef4444; text-align: center; margin: 10px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="explain-header">
+        <h1>ADVANCED EXPLAINABILITY ENGINE</h1>
+        <p>Counterfactual Explanations | What-If Sensitivity | Feature Impact Simulation</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    fm = data['feature_matrix']
+    risk_df = data['risk_scores']
+    fi = data['feature_importance']
+
+    if fm.empty or risk_df.empty:
+        st.warning("Data not available. Run `python model_pipeline.py` first.")
+        return
+
+    # Train lightweight model (cached)
+    fm_path = os.path.join(PROCESSED_DIR, "feature_matrix.csv")
+    try:
+        model, scaler, feature_cols, fm_full = _train_lightweight_model(fm_path, PROCESSED_DIR)
+    except Exception as e:
+        st.error(f"Could not train prediction model: {e}")
+        return
+
+    # Company selector
+    company_names = sorted(risk_df['company_name'].dropna().unique().tolist())
+    selected = st.selectbox("Select a company to explain", company_names, key='adv_company')
+
+    if not selected:
+        return
+
+    company_risk = risk_df[risk_df['company_name'] == selected].iloc[0]
+    company_fm = fm_full[fm_full['company_name'] == selected]
+    if company_fm.empty:
+        st.error(f"Feature data not found for {selected}")
+        return
+    company_fm = company_fm.iloc[0]
+
+    risk_score = float(company_risk['risk_score'])
+    risk_tier = company_risk.get('risk_tier', 'N/A')
+
+    # Current prediction
+    X_current = company_fm[feature_cols].fillna(0).replace([np.inf, -np.inf], 0).values.reshape(1, -1)
+    X_current_scaled = scaler.transform(X_current)
+    current_prob = model.predict_proba(X_current_scaled)[0][1]
+    current_pred = model.predict(X_current_scaled)[0]
+
+    # Header KPIs
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Risk Score", f"{risk_score:.1f}/100")
+    with col2:
+        st.metric("Risk Tier", str(risk_tier))
+    with col3:
+        st.metric("GW Probability", f"{current_prob:.1%}")
+    with col4:
+        st.metric("Prediction", "FLAGGED" if current_pred == 1 else "NOT FLAGGED")
+
+    st.markdown("---")
+
+    # === TAB LAYOUT ===
+    tab1, tab2, tab3 = st.tabs([
+        "Counterfactual Explanations",
+        "What-If Sensitivity Sliders",
+        "Feature Sensitivity Analysis",
+    ])
+
+    # Top features for analysis
+    if not fi.empty:
+        top_features = [f for f in fi['feature'].head(20).tolist() if f in feature_cols]
+    else:
+        importances = model.feature_importances_
+        top_idx = np.argsort(importances)[-20:][::-1]
+        top_features = [feature_cols[i] for i in top_idx]
+
+    # ================================================================
+    # TAB 1: COUNTERFACTUAL EXPLANATIONS
+    # ================================================================
+    with tab1:
+        st.subheader("Counterfactual Explanations")
+        st.markdown(
+            "**What minimal changes would flip this company's prediction?**  \n"
+            "Each counterfactual shows the smallest change to a single feature "
+            "that would change the greenwashing classification."
+        )
+
+        # Compute counterfactuals for top features
+        counterfactuals = []
+        for feat in top_features[:15]:
+            if feat not in feature_cols:
+                continue
+
+            feat_idx = feature_cols.index(feat)
+            current_val = float(company_fm[feat]) if not pd.isna(company_fm[feat]) else 0.0
+            feat_min = float(fm_full[feat].min())
+            feat_max = float(fm_full[feat].max())
+            feat_mean = float(fm_full[feat].mean())
+            feat_std = float(fm_full[feat].std()) if fm_full[feat].std() > 0 else 1.0
+
+            # Search for threshold that flips prediction
+            best_cf = None
+            target_class = 1 - current_pred
+
+            # Try steps from current value toward population extremes
+            if current_pred == 1:
+                # Flagged -> try to make NOT flagged (reduce risk)
+                test_values = np.linspace(current_val, feat_min, 30)
+            else:
+                # Not flagged -> try to make FLAGGED (increase risk)
+                test_values = np.linspace(current_val, feat_max, 30)
+
+            for test_val in test_values:
+                X_test = X_current.copy()
+                X_test[0, feat_idx] = test_val
+                X_test_scaled = scaler.transform(X_test)
+                test_pred = model.predict(X_test_scaled)[0]
+                test_prob = model.predict_proba(X_test_scaled)[0][1]
+
+                if test_pred == target_class:
+                    change = test_val - current_val
+                    change_pct = (change / (abs(current_val) + 1e-8)) * 100
+                    counterfactuals.append({
+                        'feature': feat,
+                        'current_value': current_val,
+                        'required_value': test_val,
+                        'change': change,
+                        'change_pct': change_pct,
+                        'new_prediction': 'NOT FLAGGED' if target_class == 0 else 'FLAGGED',
+                        'new_probability': test_prob,
+                        'direction': 'decrease' if change < 0 else 'increase',
+                        'change_in_std': change / feat_std,
+                    })
+                    break
+
+        if counterfactuals:
+            # Sort by smallest absolute change in std deviations
+            counterfactuals.sort(key=lambda x: abs(x['change_in_std']))
+
+            st.markdown(f"Found **{len(counterfactuals)} actionable counterfactuals** for {selected}:")
+
+            # Easiest counterfactual highlight
+            easiest = counterfactuals[0]
+            direction_word = "decreased" if easiest['direction'] == 'decrease' else 'increased'
+            arrow = "↓" if easiest['direction'] == 'decrease' else "↑"
+
+            if current_pred == 1:
+                st.markdown(
+                    f'<div class="cf-result-good">'
+                    f'<h3 style="color:#16a34a;margin:0;">EASIEST PATH TO LOW RISK</h3>'
+                    f'<p style="font-size:18px;margin:10px 0;">If <b>{easiest["feature"]}</b> '
+                    f'{direction_word} from <b>{easiest["current_value"]:.4f}</b> to '
+                    f'<b>{easiest["required_value"]:.4f}</b> {arrow} → '
+                    f'Risk becomes <b style="color:#16a34a;">{easiest["new_prediction"]}</b></p>'
+                    f'<p style="color:#666;font-size:13px;">Change: {easiest["change"]:+.4f} '
+                    f'({easiest["change_in_std"]:+.2f} std deviations)</p></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f'<div class="cf-result-bad">'
+                    f'<h3 style="color:#dc2626;margin:0;">TIPPING POINT TO HIGH RISK</h3>'
+                    f'<p style="font-size:18px;margin:10px 0;">If <b>{easiest["feature"]}</b> '
+                    f'{direction_word} from <b>{easiest["current_value"]:.4f}</b> to '
+                    f'<b>{easiest["required_value"]:.4f}</b> {arrow} → '
+                    f'Would become <b style="color:#dc2626;">{easiest["new_prediction"]}</b></p>'
+                    f'<p style="color:#666;font-size:13px;">Change: {easiest["change"]:+.4f} '
+                    f'({easiest["change_in_std"]:+.2f} std deviations)</p></div>',
+                    unsafe_allow_html=True)
+
+            # All counterfactuals
+            for cf in counterfactuals:
+                arrow = "↓" if cf['direction'] == 'decrease' else "↑"
+                st.markdown(
+                    f'<div class="counterfactual-card">'
+                    f'<b>{cf["feature"]}</b><br>'
+                    f'<span class="cf-arrow">{cf["current_value"]:.4f} → {cf["required_value"]:.4f} {arrow}</span>'
+                    f' &nbsp; (change: {cf["change"]:+.4f} | {cf["change_in_std"]:+.2f} std)<br>'
+                    f'<span style="color:#666;">Result: {cf["new_prediction"]} '
+                    f'(probability: {cf["new_probability"]:.1%})</span></div>',
+                    unsafe_allow_html=True)
+
+            # Counterfactual bar chart
+            cf_df = pd.DataFrame(counterfactuals)
+            fig = px.bar(
+                cf_df, x='feature', y='change_in_std',
+                color='change_in_std',
+                color_continuous_scale='RdBu_r',
+                title='Required Change (in std deviations) to Flip Prediction',
+                labels={'change_in_std': 'Change (std devs)', 'feature': 'Feature'},
+            )
+            fig.update_layout(xaxis_tickangle=-45, height=450)
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("No single-feature counterfactual found. The prediction may require "
+                    "multi-feature changes to flip.")
+
+    # ================================================================
+    # TAB 2: WHAT-IF SENSITIVITY SLIDERS
+    # ================================================================
+    with tab2:
+        st.subheader("What-If Analysis")
+        st.markdown(
+            "**Adjust feature values with sliders and watch the prediction change in real time.**  \n"
+            "This simulates how changes in ESG metrics would affect greenwashing risk."
+        )
+
+        # Select features to adjust
+        slider_features = st.multiselect(
+            "Select features to adjust (max 8)",
+            top_features[:15],
+            default=top_features[:5],
+            max_selections=8,
+            key='whatif_features',
+        )
+
+        if not slider_features:
+            st.info("Select features above to start the What-If analysis.")
+        else:
+            # Create sliders
+            modified_values = {}
+            st.markdown("##### Adjust values:")
+
+            for feat in slider_features:
+                current_val = float(company_fm[feat]) if not pd.isna(company_fm[feat]) else 0.0
+                feat_min = float(fm_full[feat].quantile(0.01))
+                feat_max = float(fm_full[feat].quantile(0.99))
+                feat_mean = float(fm_full[feat].mean())
+
+                # Handle edge cases
+                if feat_min >= feat_max:
+                    feat_min = current_val - 1
+                    feat_max = current_val + 1
+
+                step = (feat_max - feat_min) / 100
+
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    new_val = st.slider(
+                        f"{feat}",
+                        min_value=float(feat_min),
+                        max_value=float(feat_max),
+                        value=float(np.clip(current_val, feat_min, feat_max)),
+                        step=float(step),
+                        key=f"slider_{feat}",
+                    )
+                with col2:
+                    st.caption(f"Current: {current_val:.4f}")
+                with col3:
+                    change = new_val - current_val
+                    if abs(change) > 0.0001:
+                        st.caption(f"Change: {change:+.4f}")
+                    else:
+                        st.caption("No change")
+
+                modified_values[feat] = new_val
+
+            # Compute new prediction
+            X_modified = X_current.copy()
+            for feat, val in modified_values.items():
+                if feat in feature_cols:
+                    feat_idx = feature_cols.index(feat)
+                    X_modified[0, feat_idx] = val
+
+            X_modified_scaled = scaler.transform(X_modified)
+            new_prob = model.predict_proba(X_modified_scaled)[0][1]
+            new_pred = model.predict(X_modified_scaled)[0]
+            new_risk_est = _compute_risk_score_from_features(
+                {feat: modified_values.get(feat, company_fm[feat]) for feat in fm_full.columns
+                 if feat in company_fm.index},
+                fm_full)
+
+            st.markdown("---")
+            st.subheader("Live Prediction Result")
+
+            # Before/After comparison
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("##### BEFORE (Current)")
+                st.metric("GW Probability", f"{current_prob:.1%}")
+                st.metric("Prediction", "FLAGGED" if current_pred == 1 else "NOT FLAGGED")
+            with col2:
+                st.markdown("##### CHANGE")
+                prob_change = new_prob - current_prob
+                st.metric("Probability Shift", f"{prob_change:+.1%}",
+                          delta=f"{prob_change:+.1%}", delta_color="inverse")
+                flipped = new_pred != current_pred
+                if flipped:
+                    st.success("PREDICTION FLIPPED!")
+                else:
+                    st.info("No flip")
+            with col3:
+                st.markdown("##### AFTER (Modified)")
+                st.metric("GW Probability", f"{new_prob:.1%}")
+                st.metric("Prediction", "FLAGGED" if new_pred == 1 else "NOT FLAGGED")
+
+            # Gauge comparison
+            col1, col2 = st.columns(2)
+            for col, (title, prob, color) in zip(
+                [col1, col2],
+                [("Current", current_prob, "#3498db"), ("Modified", new_prob, "#e74c3c")]
+            ):
+                with col:
+                    fig = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=prob * 100,
+                        title={'text': title},
+                        gauge={
+                            'axis': {'range': [0, 100]},
+                            'bar': {'color': color},
+                            'steps': [
+                                {'range': [0, 30], 'color': '#e8f5e9'},
+                                {'range': [30, 60], 'color': '#fff3e0'},
+                                {'range': [60, 100], 'color': '#ffebee'},
+                            ],
+                            'threshold': {
+                                'line': {'color': 'black', 'width': 3},
+                                'thickness': 0.8,
+                                'value': 50,
+                            },
+                        }
+                    ))
+                    fig.update_layout(height=250)
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # Feature changes table
+            changes_data = []
+            for feat in slider_features:
+                old_val = float(company_fm[feat]) if not pd.isna(company_fm[feat]) else 0.0
+                new_val = modified_values[feat]
+                changes_data.append({
+                    'Feature': feat,
+                    'Original': round(old_val, 4),
+                    'Modified': round(new_val, 4),
+                    'Change': round(new_val - old_val, 4),
+                })
+            st.dataframe(pd.DataFrame(changes_data), use_container_width=True)
+
+    # ================================================================
+    # TAB 3: FEATURE SENSITIVITY ANALYSIS
+    # ================================================================
+    with tab3:
+        st.subheader("Feature Sensitivity Analysis")
+        st.markdown(
+            "**How sensitive is this company's prediction to each feature?**  \n"
+            "Each feature is varied across its population range while others stay fixed. "
+            "Steep curves = high sensitivity."
+        )
+
+        # Select features to analyze
+        sensitivity_features = st.multiselect(
+            "Select features for sensitivity sweep",
+            top_features[:15],
+            default=top_features[:4],
+            max_selections=6,
+            key='sens_features',
+        )
+
+        if sensitivity_features:
+            # Compute sensitivity curves
+            fig = make_subplots(
+                rows=len(sensitivity_features), cols=1,
+                subplot_titles=[f"Sensitivity: {f}" for f in sensitivity_features],
+                vertical_spacing=0.08,
+            )
+
+            for row_idx, feat in enumerate(sensitivity_features):
+                feat_idx = feature_cols.index(feat) if feat in feature_cols else None
+                if feat_idx is None:
+                    continue
+
+                current_val = float(company_fm[feat]) if not pd.isna(company_fm[feat]) else 0.0
+                feat_min = float(fm_full[feat].quantile(0.02))
+                feat_max = float(fm_full[feat].quantile(0.98))
+
+                if feat_min >= feat_max:
+                    continue
+
+                sweep_values = np.linspace(feat_min, feat_max, 50)
+                probabilities = []
+
+                for val in sweep_values:
+                    X_sweep = X_current.copy()
+                    X_sweep[0, feat_idx] = val
+                    X_sweep_scaled = scaler.transform(X_sweep)
+                    prob = model.predict_proba(X_sweep_scaled)[0][1]
+                    probabilities.append(prob)
+
+                # Add probability curve
+                fig.add_trace(
+                    go.Scatter(
+                        x=sweep_values, y=probabilities,
+                        mode='lines', name=feat,
+                        line=dict(width=3),
+                        hovertemplate=f'{feat}: %{{x:.4f}}<br>GW Prob: %{{y:.1%}}<extra></extra>',
+                    ),
+                    row=row_idx + 1, col=1,
+                )
+
+                # Mark current value
+                fig.add_trace(
+                    go.Scatter(
+                        x=[current_val], y=[current_prob],
+                        mode='markers', name=f'{feat} (current)',
+                        marker=dict(size=14, color='red', symbol='star',
+                                    line=dict(width=2, color='black')),
+                        showlegend=False,
+                        hovertemplate=f'CURRENT: {current_val:.4f}<br>Prob: {current_prob:.1%}<extra></extra>',
+                    ),
+                    row=row_idx + 1, col=1,
+                )
+
+                # Decision boundary line at 50%
+                fig.add_hline(y=0.5, line_dash="dash", line_color="gray",
+                              opacity=0.5, row=row_idx + 1, col=1)
+
+                fig.update_yaxes(title_text="GW Probability", range=[0, 1],
+                                 row=row_idx + 1, col=1)
+                fig.update_xaxes(title_text=feat, row=row_idx + 1, col=1)
+
+            fig.update_layout(
+                height=350 * len(sensitivity_features),
+                showlegend=False,
+                title_text=f"Feature Sensitivity Curves -- {selected}",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("""
+            **How to read this chart:**
+            - **Red star** = company's current position
+            - **Steep curve** = prediction is highly sensitive to this feature
+            - **Flat curve** = feature has little impact on prediction
+            - **Dashed line at 50%** = decision boundary (above = flagged, below = not flagged)
+            """)
+
+            # Sensitivity magnitude summary
+            st.subheader("Sensitivity Magnitude Summary")
+            sens_data = []
+            for feat in sensitivity_features:
+                feat_idx = feature_cols.index(feat) if feat in feature_cols else None
+                if feat_idx is None:
+                    continue
+
+                feat_min = float(fm_full[feat].quantile(0.02))
+                feat_max = float(fm_full[feat].quantile(0.98))
+
+                # Probability at extremes
+                X_low = X_current.copy()
+                X_low[0, feat_idx] = feat_min
+                X_high = X_current.copy()
+                X_high[0, feat_idx] = feat_max
+
+                prob_low = model.predict_proba(scaler.transform(X_low))[0][1]
+                prob_high = model.predict_proba(scaler.transform(X_high))[0][1]
+
+                sens_data.append({
+                    'Feature': feat,
+                    'Prob at Min': f"{prob_low:.1%}",
+                    'Prob at Max': f"{prob_high:.1%}",
+                    'Sensitivity Range': f"{abs(prob_high - prob_low):.1%}",
+                    'Current Value': f"{float(company_fm[feat]):.4f}" if not pd.isna(company_fm[feat]) else "0",
+                    'Can Flip?': "YES" if (prob_low < 0.5 < prob_high) or (prob_high < 0.5 < prob_low) else "No",
+                })
+
+            sens_df = pd.DataFrame(sens_data)
+            st.dataframe(sens_df, use_container_width=True)
+
+            # Sensitivity bar chart
+            sens_df['Range'] = [abs(float(r.strip('%'))) for r in sens_df['Sensitivity Range']]
+            fig = px.bar(
+                sens_df.sort_values('Range', ascending=True),
+                x='Range', y='Feature', orientation='h',
+                title='Feature Sensitivity Magnitude (probability range when varied)',
+                labels={'Range': 'Sensitivity (%)', 'Feature': ''},
+                color='Range', color_continuous_scale='YlOrRd',
+                text='Sensitivity Range',
+            )
+            fig.update_traces(textposition='outside')
+            fig.update_layout(height=max(300, len(sensitivity_features) * 60))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Select features above to run sensitivity analysis.")
+
+
+# ============================================================================
+# PAGE 10: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -2906,6 +3490,8 @@ def main():
         page_esg_report_analyzer(data)
     elif page == "Report Generator":
         page_report_generator(data)
+    elif page == "Advanced Explainability":
+        page_advanced_explainability(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
