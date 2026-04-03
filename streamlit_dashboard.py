@@ -22,6 +22,16 @@ from plotly.subplots import make_subplots    # Subplots for multi-panel figures
 import os                                    # File system operations
 import re                                    # Regular expressions
 import json                                  # JSON parsing
+
+# Load .env file if present (for API keys)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(_env_path):
+    with open(_env_path, 'r') as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _key, _val = _line.split('=', 1)
+                os.environ[_key.strip()] = _val.strip()
 import xml.etree.ElementTree as ET           # XML parsing for RSS feeds
 from datetime import datetime, timedelta     # Date handling
 from urllib.parse import quote               # URL encoding
@@ -126,6 +136,7 @@ def render_sidebar(data):
             "Company Search & Analysis",
             "Real-Time Intelligence",
             "ESG Report Analyzer (AI)",
+            "Report Generator",
             "SHAP Explanations",
         ]
     )
@@ -1855,31 +1866,29 @@ def page_esg_report_analyzer(data):
     </div>
     """, unsafe_allow_html=True)
 
-    # --- API Key input ---
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        api_key = st.text_input(
-            "Google Gemini API Key",
-            type="password",
-            placeholder="Paste your Gemini API key here...",
-            help="Get free key at https://aistudio.google.com/apikey",
-        )
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        use_fallback = st.checkbox("Use without API key", value=False,
-                                   help="Uses rule-based analysis instead of LLM")
+    # --- API Key (auto-loaded from .env) ---
+    env_key = os.environ.get('GEMINI_API_KEY', '')
+    if env_key:
+        api_key = env_key
+        st.success("Gemini API key loaded from .env file")
+        use_fallback = False
+    else:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            api_key = st.text_input(
+                "Google Gemini API Key",
+                type="password",
+                placeholder="Paste your Gemini API key here...",
+                help="Get free key at https://aistudio.google.com/apikey",
+            )
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            use_fallback = st.checkbox("Use without API key", value=False,
+                                       help="Uses rule-based analysis instead of LLM")
 
-    if not api_key and not use_fallback:
-        st.info("Enter your Gemini API key above, or check 'Use without API key' for rule-based analysis.")
-        st.markdown("""
-        **How to get a free API key:**
-        1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
-        2. Click 'Create API Key'
-        3. Copy and paste it above
-
-        **Free tier**: 15 requests/min, 1,500 requests/day -- more than enough!
-        """)
-        return
+        if not api_key and not use_fallback:
+            st.info("Enter your Gemini API key above, or check 'Use without API key' for rule-based analysis.")
+            return
 
     st.markdown("---")
 
@@ -2194,7 +2203,585 @@ def page_esg_report_analyzer(data):
 
 
 # ============================================================================
-# PAGE 8: SHAP EXPLANATIONS (all interactive)
+# PAGE 8: REPORT GENERATOR
+# ============================================================================
+
+def _generate_html_report(company_name, risk_data, fm_data, pred_data, fi_df, all_risk_df):
+    """Generate a full HTML greenwashing analysis report for a company."""
+
+    risk_score = float(risk_data.get('risk_score', 0))
+    risk_tier = risk_data.get('risk_tier', 'N/A')
+    sector = risk_data.get('sector', 'N/A')
+    esg_risk = float(risk_data.get('total_esg_risk_score', 0))
+    controversy = float(risk_data.get('controversy_score', 0))
+
+    # Component scores
+    comp_proxy = float(risk_data.get('comp_proxy', 0))
+    comp_linguistic = float(risk_data.get('comp_linguistic', 0))
+    comp_divergence = float(risk_data.get('comp_divergence', 0))
+    comp_credibility = float(risk_data.get('comp_credibility_inv', 0))
+    comp_controversy = float(risk_data.get('comp_controversy_ratio', 0))
+
+    # Feature matrix data
+    env_risk = float(fm_data.get('env_risk_score', 0)) if fm_data is not None else 0
+    social_risk = float(fm_data.get('social_risk_score', 0)) if fm_data is not None else 0
+    gov_risk = float(fm_data.get('gov_risk_score', 0)) if fm_data is not None else 0
+    gw_signal = float(fm_data.get('greenwashing_signal_score', 0)) if fm_data is not None else 0
+    vague_count = int(fm_data.get('vague_language_count', 0)) if fm_data is not None else 0
+    concrete_count = int(fm_data.get('concrete_evidence_count', 0)) if fm_data is not None else 0
+    hedge_count = int(fm_data.get('hedge_language_count', 0)) if fm_data is not None else 0
+    superlative_count = int(fm_data.get('superlative_count', 0)) if fm_data is not None else 0
+    future_count = int(fm_data.get('future_language_count', 0)) if fm_data is not None else 0
+    sentiment = float(fm_data.get('text_polarity', 0)) if fm_data is not None else 0
+    flesch = float(fm_data.get('flesch_reading_ease', 0)) if fm_data is not None else 0
+    divergence = float(fm_data.get('esg_controversy_divergence', 0)) if fm_data is not None else 0
+    controversy_ratio = float(fm_data.get('controversy_risk_ratio', 0)) if fm_data is not None else 0
+    imbalance = float(fm_data.get('pillar_imbalance_score', 0)) if fm_data is not None else 0
+    anomaly = float(fm_data.get('combined_anomaly_score', 0)) if fm_data is not None else 0
+    mismatch = int(fm_data.get('risk_controversy_mismatch', 0)) if fm_data is not None else 0
+    lexical_div = float(fm_data.get('lexical_diversity', 0)) if fm_data is not None else 0
+
+    # Predictions
+    proxy_score = int(pred_data.get('gw_proxy_score', 0)) if pred_data is not None else 0
+    label = int(pred_data.get('gw_label_binary', 0)) if pred_data is not None else 0
+
+    # Sector peers
+    peer_df = all_risk_df[all_risk_df['sector'] == sector] if sector != 'N/A' else pd.DataFrame()
+    peer_count = len(peer_df)
+    sector_avg = float(peer_df['risk_score'].mean()) if not peer_df.empty else 0
+    peer_rank = int((peer_df['risk_score'] > risk_score).sum()) + 1 if not peer_df.empty else 0
+
+    # Risk color
+    if risk_score >= 60:
+        risk_color = '#e74c3c'
+        verdict = 'HIGH GREENWASHING RISK'
+        verdict_detail = 'Multiple indicators suggest this company may be engaging in greenwashing practices.'
+    elif risk_score >= 40:
+        risk_color = '#ff9800'
+        verdict = 'MODERATE GREENWASHING RISK'
+        verdict_detail = 'Some indicators warrant further investigation into ESG claims.'
+    else:
+        risk_color = '#27ae60'
+        verdict = 'LOW GREENWASHING RISK'
+        verdict_detail = 'ESG claims appear largely consistent with actual performance metrics.'
+
+    # Indicator rows
+    def indicator_row(name, value, threshold, desc):
+        status = 'HIGH' if value > threshold else 'Normal'
+        s_color = '#e74c3c' if status == 'HIGH' else '#27ae60'
+        return f"""<tr>
+            <td>{name}</td><td>{value:.4f}</td><td>{threshold:.4f}</td>
+            <td style="color:{s_color};font-weight:bold;">{status}</td>
+            <td style="font-size:12px;color:#666;">{desc}</td></tr>"""
+
+    now = datetime.now().strftime('%B %d, %Y at %H:%M')
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ESG Greenwashing Report -- {company_name}</title>
+<style>
+  @page {{ margin: 30px; }}
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #333; margin: 0; padding: 0; background: #fff; }}
+  .cover {{ background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460); color: white;
+            padding: 60px 50px; text-align: center; }}
+  .cover h1 {{ font-size: 36px; margin: 0 0 10px 0; color: #e94560; }}
+  .cover h2 {{ font-size: 24px; margin: 0 0 20px 0; font-weight: normal; }}
+  .cover .meta {{ font-size: 14px; color: #7ec8e3; }}
+  .content {{ padding: 40px 50px; }}
+  h2 {{ color: #0f3460; border-bottom: 3px solid #e94560; padding-bottom: 8px; margin-top: 40px; }}
+  h3 {{ color: #16213e; margin-top: 25px; }}
+  .kpi-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }}
+  .kpi-card {{ background: #f8f9fa; border-radius: 10px; padding: 20px; text-align: center;
+               border-top: 4px solid #3498db; }}
+  .kpi-card .value {{ font-size: 28px; font-weight: bold; color: #0f3460; }}
+  .kpi-card .label {{ font-size: 13px; color: #666; margin-top: 5px; }}
+  .verdict {{ background: {risk_color}; color: white; padding: 20px 30px; border-radius: 10px;
+              font-size: 18px; text-align: center; margin: 20px 0; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }}
+  th {{ background: #0f3460; color: white; padding: 10px 12px; text-align: left; }}
+  td {{ padding: 9px 12px; border-bottom: 1px solid #eee; }}
+  tr:nth-child(even) {{ background: #f9f9f9; }}
+  .component-bar {{ height: 22px; border-radius: 4px; display: inline-block; min-width: 30px;
+                    color: white; font-size: 12px; text-align: center; line-height: 22px; }}
+  .bar-container {{ background: #eee; border-radius: 4px; width: 100%; position: relative; }}
+  .section-box {{ background: #f0f4ff; border-left: 4px solid #3498db; padding: 15px 20px;
+                  border-radius: 0 8px 8px 0; margin: 15px 0; }}
+  .red-box {{ background: #fff0f0; border-left: 4px solid #e74c3c; padding: 12px 18px;
+              border-radius: 0 8px 8px 0; margin: 8px 0; }}
+  .green-box {{ background: #f0fff0; border-left: 4px solid #27ae60; padding: 12px 18px;
+                border-radius: 0 8px 8px 0; margin: 8px 0; }}
+  .yellow-box {{ background: #fffde7; border-left: 4px solid #ff9800; padding: 12px 18px;
+                 border-radius: 0 8px 8px 0; margin: 8px 0; }}
+  .footer {{ background: #1a1a2e; color: #7ec8e3; padding: 20px 50px; text-align: center;
+             font-size: 12px; margin-top: 40px; }}
+  .gauge-container {{ text-align: center; margin: 20px auto; }}
+  .gauge {{ width: 200px; height: 100px; border-radius: 200px 200px 0 0;
+            background: conic-gradient(#27ae60 0% 20%, #82e0aa 20% 40%, #f4d03f 40% 60%,
+            #e67e22 60% 80%, #e74c3c 80% 100%);
+            position: relative; display: inline-block; overflow: hidden; }}
+  .pillar-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }}
+  .pillar-card {{ text-align: center; padding: 20px; border-radius: 10px; }}
+  .pillar-card .score {{ font-size: 32px; font-weight: bold; }}
+  .env-card {{ background: #e8f5e9; border: 2px solid #4caf50; }}
+  .env-card .score {{ color: #2e7d32; }}
+  .social-card {{ background: #e3f2fd; border: 2px solid #2196f3; }}
+  .social-card .score {{ color: #1565c0; }}
+  .gov-card {{ background: #f3e5f5; border: 2px solid #9c27b0; }}
+  .gov-card .score {{ color: #6a1b9a; }}
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <h1>ESG GREENWASHING ANALYSIS REPORT</h1>
+  <h2>{company_name}</h2>
+  <div class="meta">
+    Sector: {sector} | Generated: {now}<br>
+    ESG Greenwashing Detection System | NLP + Machine Learning + Explainable AI
+  </div>
+</div>
+
+<div class="content">
+
+<!-- EXECUTIVE SUMMARY -->
+<h2>1. Executive Summary</h2>
+
+<div class="verdict">{verdict}: {company_name} scores {risk_score:.1f}/100 on greenwashing risk</div>
+
+<p>{verdict_detail}</p>
+
+<div class="kpi-grid">
+  <div class="kpi-card" style="border-top-color:{risk_color};">
+    <div class="value" style="color:{risk_color};">{risk_score:.1f}</div>
+    <div class="label">Risk Score (0-100)</div>
+  </div>
+  <div class="kpi-card">
+    <div class="value">{risk_tier}</div>
+    <div class="label">Risk Tier</div>
+  </div>
+  <div class="kpi-card">
+    <div class="value">{esg_risk:.1f}</div>
+    <div class="label">Total ESG Risk</div>
+  </div>
+  <div class="kpi-card">
+    <div class="value">{controversy:.1f}</div>
+    <div class="label">Controversy Score</div>
+  </div>
+</div>
+
+<div class="section-box">
+  <strong>Model Prediction:</strong> This company triggered <strong>{proxy_score} out of 5</strong>
+  greenwashing indicators and is classified as
+  <strong>{"FLAGGED -- Potential Greenwashing" if label == 1 else "NOT FLAGGED -- Low Risk"}</strong>
+  by the Gradient Boosting model (F1 = 0.9682).
+</div>
+
+<!-- RISK SCORE BREAKDOWN -->
+<h2>2. Risk Score Breakdown</h2>
+
+<p>The greenwashing risk score is a weighted composite of 5 components:</p>
+
+<table>
+  <tr><th>Component</th><th>Weight</th><th>Score (0-100)</th><th>Visual</th></tr>
+  <tr><td>Proxy Score (ML Indicators)</td><td>40%</td><td>{comp_proxy:.1f}</td>
+      <td><div class="bar-container"><div class="component-bar" style="width:{comp_proxy}%;background:#e74c3c;">{comp_proxy:.0f}</div></div></td></tr>
+  <tr><td>Linguistic GW Signal (NLP)</td><td>15%</td><td>{comp_linguistic:.1f}</td>
+      <td><div class="bar-container"><div class="component-bar" style="width:{comp_linguistic}%;background:#ff9800;">{comp_linguistic:.0f}</div></div></td></tr>
+  <tr><td>ESG-Controversy Divergence</td><td>15%</td><td>{comp_divergence:.1f}</td>
+      <td><div class="bar-container"><div class="component-bar" style="width:{comp_divergence}%;background:#f39c12;">{comp_divergence:.0f}</div></div></td></tr>
+  <tr><td>Low Claim Credibility</td><td>15%</td><td>{comp_credibility:.1f}</td>
+      <td><div class="bar-container"><div class="component-bar" style="width:{comp_credibility}%;background:#9b59b6;">{comp_credibility:.0f}</div></div></td></tr>
+  <tr><td>Controversy-Risk Ratio</td><td>15%</td><td>{comp_controversy:.1f}</td>
+      <td><div class="bar-container"><div class="component-bar" style="width:{comp_controversy}%;background:#e67e22;">{comp_controversy:.0f}</div></div></td></tr>
+</table>
+
+<!-- ESG PILLAR ANALYSIS -->
+<h2>3. ESG Pillar Analysis</h2>
+
+<div class="pillar-grid">
+  <div class="pillar-card env-card">
+    <div class="score">{env_risk:.1f}</div>
+    <div>Environmental Risk</div>
+  </div>
+  <div class="pillar-card social-card">
+    <div class="score">{social_risk:.1f}</div>
+    <div>Social Risk</div>
+  </div>
+  <div class="pillar-card gov-card">
+    <div class="score">{gov_risk:.1f}</div>
+    <div>Governance Risk</div>
+  </div>
+</div>
+
+<table>
+  <tr><th>Metric</th><th>Value</th><th>Interpretation</th></tr>
+  <tr><td>Pillar Imbalance Score</td><td>{imbalance:.4f}</td>
+      <td>{"High imbalance -- uneven ESG performance across pillars" if imbalance > 3 else "Balanced ESG profile"}</td></tr>
+  <tr><td>Controversy Score</td><td>{controversy:.1f}</td>
+      <td>{"High controversy level" if controversy >= 3 else "Moderate controversy" if controversy >= 2 else "Low controversy"}</td></tr>
+  <tr><td>ESG-Controversy Divergence</td><td>{divergence:.4f}</td>
+      <td>{"CRITICAL: Claims low risk but has high controversy" if divergence > 1 else "Moderate gap" if divergence > 0 else "Consistent profile"}</td></tr>
+  <tr><td>Risk-Controversy Mismatch</td><td>{"YES" if mismatch else "NO"}</td>
+      <td>{"Red flag: ESG risk level inconsistent with controversy" if mismatch else "ESG risk aligns with controversy level"}</td></tr>
+</table>
+
+<!-- NLP LINGUISTIC ANALYSIS -->
+<h2>4. NLP & Linguistic Analysis</h2>
+
+<p>Analysis of the company's corporate description text using Natural Language Processing:</p>
+
+<div class="kpi-grid">
+  <div class="kpi-card" style="border-top-color:{'#e74c3c' if gw_signal > 0.5 else '#ff9800' if gw_signal > 0.3 else '#27ae60'};">
+    <div class="value">{gw_signal:.3f}</div>
+    <div class="label">GW Signal Score (0-1)</div>
+  </div>
+  <div class="kpi-card" style="border-top-color:#e74c3c;">
+    <div class="value">{vague_count}</div>
+    <div class="label">Vague Language</div>
+  </div>
+  <div class="kpi-card" style="border-top-color:#27ae60;">
+    <div class="value">{concrete_count}</div>
+    <div class="label">Concrete Evidence</div>
+  </div>
+  <div class="kpi-card">
+    <div class="value">{sentiment:+.3f}</div>
+    <div class="label">Sentiment Polarity</div>
+  </div>
+</div>
+
+<table>
+  <tr><th>Linguistic Feature</th><th>Count</th><th>Risk Implication</th></tr>
+  <tr><td>Vague Language ("committed to", "striving for")</td><td>{vague_count}</td>
+      <td style="color:{'#e74c3c' if vague_count > 3 else '#333'};">{"High -- excessive vague promises" if vague_count > 3 else "Acceptable"}</td></tr>
+  <tr><td>Hedge Language ("approximately", "potentially")</td><td>{hedge_count}</td>
+      <td style="color:{'#e74c3c' if hedge_count > 3 else '#333'};">{"High -- excessive hedging" if hedge_count > 3 else "Acceptable"}</td></tr>
+  <tr><td>Superlatives ("industry-leading", "world-class")</td><td>{superlative_count}</td>
+      <td style="color:{'#ff9800' if superlative_count > 2 else '#333'};">{"Elevated -- unsubstantiated claims" if superlative_count > 2 else "Normal"}</td></tr>
+  <tr><td>Future Language ("will", "plan to", "by 2030")</td><td>{future_count}</td>
+      <td style="color:{'#ff9800' if future_count > 3 else '#333'};">{"Heavy future focus without past data" if future_count > 3 else "Balanced"}</td></tr>
+  <tr><td>Concrete Evidence ("reduced by X%", "ISO certified")</td><td>{concrete_count}</td>
+      <td style="color:{'#27ae60' if concrete_count > 2 else '#e74c3c'};">{"Good -- includes verifiable data" if concrete_count > 2 else "Low -- lacks measurable evidence"}</td></tr>
+  <tr><td>Flesch Reading Ease</td><td>{flesch:.1f}</td>
+      <td>{"Easy to read" if flesch > 60 else "Moderate complexity" if flesch > 30 else "Very complex -- potential obfuscation"}</td></tr>
+  <tr><td>Lexical Diversity</td><td>{lexical_div:.3f}</td>
+      <td>{"High vocabulary diversity" if lexical_div > 0.6 else "Repetitive language"}</td></tr>
+</table>
+
+{"<div class='red-box'><strong>LINGUISTIC RED FLAG:</strong> Vague language count (" + str(vague_count) + ") significantly exceeds concrete evidence (" + str(concrete_count) + "). This is a classic greenwashing pattern.</div>" if vague_count > concrete_count * 1.5 and vague_count > 2 else ""}
+{"<div class='green-box'><strong>POSITIVE:</strong> Concrete evidence (" + str(concrete_count) + ") outweighs vague language (" + str(vague_count) + "). Corporate text appears substantive.</div>" if concrete_count >= vague_count and concrete_count > 1 else ""}
+
+<!-- KEY GREENWASHING INDICATORS -->
+<h2>5. Key Greenwashing Indicators</h2>
+
+<p>Six critical indicators are evaluated against the 75th percentile threshold of the 480-company population:</p>
+
+<table>
+  <tr><th>Indicator</th><th>Value</th><th>Threshold (75th pct)</th><th>Status</th><th>Description</th></tr>
+  {indicator_row('Controversy-Risk Ratio', controversy_ratio, 0.15, 'High controversy relative to ESG risk')}
+  {indicator_row('ESG-Controversy Divergence', divergence, 0.5, 'Gap between ESG claims and actual controversy')}
+  {indicator_row('GW Linguistic Score', gw_signal, 0.45, 'NLP-detected greenwashing language patterns')}
+  {indicator_row('Pillar Imbalance', imbalance, 3.5, 'Uneven ESG performance across E/S/G')}
+  {indicator_row('Combined Anomaly Score', anomaly, 1.5, 'Statistical anomaly across multiple features')}
+</table>
+
+<!-- SECTOR COMPARISON -->
+<h2>6. Sector Peer Comparison</h2>
+
+<div class="section-box">
+  <strong>{company_name}</strong> ranks <strong>#{peer_rank} out of {peer_count}</strong>
+  in the <strong>{sector}</strong> sector by greenwashing risk score.<br>
+  Company score: <strong>{risk_score:.1f}</strong> | Sector average: <strong>{sector_avg:.1f}</strong>
+  | Difference: <strong>{risk_score - sector_avg:+.1f}</strong>
+</div>
+
+{"<div class='red-box'>This company scores <strong>" + f"{risk_score - sector_avg:.1f}" + " points above</strong> its sector average, indicating higher greenwashing risk relative to peers.</div>" if risk_score > sector_avg + 10 else ""}
+{"<div class='green-box'>This company scores <strong>" + f"{sector_avg - risk_score:.1f}" + " points below</strong> its sector average, indicating lower greenwashing risk relative to peers.</div>" if risk_score < sector_avg - 10 else ""}
+
+<!-- METHODOLOGY -->
+<h2>7. Methodology</h2>
+
+<div class="section-box">
+<strong>Data Sources:</strong> S&P 500 ESG Risk Ratings, NIFTY 50 ESG Data, ESG Financial Dataset, Greenwashing Score Data<br>
+<strong>Companies Analyzed:</strong> 480 (430 S&P 500 + 50 NIFTY 50)<br>
+<strong>Features Engineered:</strong> 161 (36 Numerical + 47 NLP + 31 Categorical + Scaled Variants)<br>
+<strong>Best Model:</strong> Gradient Boosting (F1 = 0.9682, ROC-AUC = 0.9979)<br>
+<strong>Explainability:</strong> SHAP (SHapley Additive exPlanations) for feature attribution<br>
+<strong>Risk Score:</strong> Weighted composite: 40% Proxy + 15% Linguistic + 15% Divergence + 15% Credibility + 15% Controversy Ratio
+</div>
+
+<h3>7-Phase Pipeline</h3>
+<table>
+  <tr><th>Phase</th><th>Description</th></tr>
+  <tr><td>1. Data Collection</td><td>4 datasets from Kaggle (12K+ rows)</td></tr>
+  <tr><td>2. Preprocessing</td><td>Cleaning, encoding, merging into 480-company profiles</td></tr>
+  <tr><td>3. NLP Text Analysis</td><td>Sentiment, readability, ESG keywords, greenwashing linguistics, claim extraction</td></tr>
+  <tr><td>4. Feature Engineering</td><td>161 features: numerical ratios, NLP metrics, categorical encodings</td></tr>
+  <tr><td>5. Model Training</td><td>5 supervised models + Isolation Forest with GridSearchCV (5-fold CV)</td></tr>
+  <tr><td>6. Evaluation & SHAP</td><td>ROC curves, confusion matrices, SHAP per-company explanations</td></tr>
+  <tr><td>7. Risk Scoring</td><td>Composite 0-100 score with 5 weighted components</td></tr>
+</table>
+
+</div>
+
+<div class="footer">
+  ESG Greenwashing Detection System | VNR VJIET Team-18 | Generated {now}<br>
+  Powered by: Python, Scikit-learn, XGBoost, SHAP, NLP, Streamlit, Google Gemini
+</div>
+
+</body>
+</html>"""
+
+    return html
+
+
+def page_report_generator(data):
+    """Generate downloadable HTML/PDF reports for any company."""
+
+    st.markdown("""
+    <style>
+    .report-header {
+        background: linear-gradient(135deg, #0f3460, #16213e, #1a1a2e);
+        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+        border: 1px solid #3498db;
+    }
+    .report-header h1 { color: #3498db; margin: 0; font-family: monospace; }
+    .report-header p { color: #7ec8e3; margin: 5px 0 0 0; font-size: 14px; }
+    </style>
+    <div class="report-header">
+        <h1>ESG GREENWASHING REPORT GENERATOR</h1>
+        <p>Generate professional, downloadable analysis reports for any company</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    df = data['risk_scores']
+    fm = data['feature_matrix']
+    pred = data['predictions']
+    fi = data['feature_importance']
+
+    if df.empty:
+        st.warning("Data not available. Run `python model_pipeline.py` first.")
+        return
+
+    # --- Report configuration ---
+    st.subheader("Configure Report")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        company_names = sorted(df['company_name'].dropna().unique().tolist())
+        mode = st.radio("Report mode", ["Single Company", "Batch (Multiple)", "Full Portfolio"])
+
+    if mode == "Single Company":
+        with col2:
+            selected = st.selectbox("Select company", company_names)
+
+        if selected and st.button("Generate Report", type="primary", use_container_width=True):
+            with st.spinner(f"Generating report for {selected}..."):
+                risk_row = df[df['company_name'] == selected].iloc[0].to_dict()
+                fm_row = fm[fm['company_name'] == selected].iloc[0].to_dict() if not fm.empty and selected in fm['company_name'].values else None
+                pred_row = pred[pred['company_name'] == selected].iloc[0].to_dict() if not pred.empty and selected in pred['company_name'].values else None
+
+                html = _generate_html_report(selected, risk_row, fm_row, pred_row, fi, df)
+
+            st.success(f"Report generated for **{selected}**!")
+
+            # Preview
+            st.subheader("Report Preview")
+            st.components.v1.html(html, height=800, scrolling=True)
+
+            # Download buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="Download HTML Report",
+                    data=html,
+                    file_name=f"ESG_Report_{selected.replace(' ', '_')}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+            with col2:
+                # CSV summary
+                summary = {
+                    'Company': selected,
+                    'Sector': risk_row.get('sector', ''),
+                    'Risk Score': risk_row.get('risk_score', ''),
+                    'Risk Tier': risk_row.get('risk_tier', ''),
+                    'ESG Risk': risk_row.get('total_esg_risk_score', ''),
+                    'Controversy': risk_row.get('controversy_score', ''),
+                    'GW Signal': fm_row.get('greenwashing_signal_score', '') if fm_row else '',
+                    'Proxy Score': pred_row.get('gw_proxy_score', '') if pred_row else '',
+                    'Label': 'Flagged' if pred_row and pred_row.get('gw_label_binary') == 1 else 'Not Flagged',
+                }
+                csv = pd.DataFrame([summary]).to_csv(index=False)
+                st.download_button(
+                    label="Download Summary CSV",
+                    data=csv,
+                    file_name=f"ESG_Summary_{selected.replace(' ', '_')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+    elif mode == "Batch (Multiple)":
+        with col2:
+            selected_companies = st.multiselect("Select companies", company_names,
+                                                default=company_names[:3])
+
+        if selected_companies and st.button("Generate Batch Reports", type="primary",
+                                             use_container_width=True):
+            progress = st.progress(0)
+            all_summaries = []
+
+            for i, comp in enumerate(selected_companies):
+                progress.progress((i + 1) / len(selected_companies))
+                risk_row = df[df['company_name'] == comp].iloc[0].to_dict()
+                fm_row = fm[fm['company_name'] == comp].iloc[0].to_dict() if not fm.empty and comp in fm['company_name'].values else None
+                pred_row = pred[pred['company_name'] == comp].iloc[0].to_dict() if not pred.empty and comp in pred['company_name'].values else None
+
+                html = _generate_html_report(comp, risk_row, fm_row, pred_row, fi, df)
+
+                st.download_button(
+                    label=f"Download: {comp}",
+                    data=html,
+                    file_name=f"ESG_Report_{comp.replace(' ', '_')}.html",
+                    mime="text/html",
+                    key=f"dl_{comp}",
+                )
+
+                all_summaries.append({
+                    'Company': comp,
+                    'Sector': risk_row.get('sector', ''),
+                    'Risk Score': risk_row.get('risk_score', ''),
+                    'Risk Tier': risk_row.get('risk_tier', ''),
+                    'ESG Risk': risk_row.get('total_esg_risk_score', ''),
+                    'Controversy': risk_row.get('controversy_score', ''),
+                })
+
+            progress.empty()
+            st.success(f"Generated {len(selected_companies)} reports!")
+
+            # Batch summary table
+            batch_df = pd.DataFrame(all_summaries)
+            st.dataframe(batch_df, use_container_width=True)
+
+            batch_csv = batch_df.to_csv(index=False)
+            st.download_button(
+                label="Download Batch Summary CSV",
+                data=batch_csv,
+                file_name="ESG_Batch_Summary.csv",
+                mime="text/csv",
+            )
+
+    elif mode == "Full Portfolio":
+        st.markdown(f"Generate summary report for all **{len(df)}** companies.")
+
+        if st.button("Generate Portfolio Report", type="primary", use_container_width=True):
+            with st.spinner("Generating portfolio report..."):
+                # Portfolio summary stats
+                total = len(df)
+                high_risk = len(df[df['risk_score'] >= 60])
+                moderate = len(df[(df['risk_score'] >= 40) & (df['risk_score'] < 60)])
+                low_risk = len(df[df['risk_score'] < 40])
+
+                sector_summary = df.groupby('sector').agg(
+                    Companies=('risk_score', 'count'),
+                    Avg_Risk=('risk_score', 'mean'),
+                    Max_Risk=('risk_score', 'max'),
+                    High_Risk_Count=('risk_score', lambda x: (x >= 60).sum()),
+                ).round(1).sort_values('Avg_Risk', ascending=False)
+
+                sector_rows = ""
+                for sec, row in sector_summary.iterrows():
+                    color = '#e74c3c' if row['Avg_Risk'] >= 50 else '#ff9800' if row['Avg_Risk'] >= 35 else '#27ae60'
+                    sector_rows += f"""<tr><td>{sec}</td><td>{int(row['Companies'])}</td>
+                        <td style="color:{color};font-weight:bold;">{row['Avg_Risk']:.1f}</td>
+                        <td>{row['Max_Risk']:.1f}</td><td>{int(row['High_Risk_Count'])}</td></tr>"""
+
+                top20 = df.nlargest(20, 'risk_score')
+                top20_rows = ""
+                for _, row in top20.iterrows():
+                    top20_rows += f"""<tr><td>{row['company_name']}</td><td>{row['sector']}</td>
+                        <td style="color:#e74c3c;font-weight:bold;">{row['risk_score']:.1f}</td>
+                        <td>{row.get('risk_tier', '')}</td></tr>"""
+
+                now = datetime.now().strftime('%B %d, %Y at %H:%M')
+
+                portfolio_html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>ESG Portfolio Greenwashing Report</title>
+<style>
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #333; margin: 0; }}
+  .cover {{ background: linear-gradient(135deg, #1a1a2e, #0f3460); color: white;
+            padding: 60px 50px; text-align: center; }}
+  .cover h1 {{ font-size: 36px; color: #e94560; margin: 0 0 10px 0; }}
+  .cover h2 {{ font-weight: normal; font-size: 20px; }}
+  .cover .meta {{ font-size: 14px; color: #7ec8e3; }}
+  .content {{ padding: 40px 50px; }}
+  h2 {{ color: #0f3460; border-bottom: 3px solid #e94560; padding-bottom: 8px; }}
+  .kpi-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }}
+  .kpi-card {{ background: #f8f9fa; border-radius: 10px; padding: 20px; text-align: center;
+               border-top: 4px solid #3498db; }}
+  .kpi-card .value {{ font-size: 32px; font-weight: bold; color: #0f3460; }}
+  .kpi-card .label {{ font-size: 13px; color: #666; margin-top: 5px; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }}
+  th {{ background: #0f3460; color: white; padding: 10px; text-align: left; }}
+  td {{ padding: 8px 10px; border-bottom: 1px solid #eee; }}
+  tr:nth-child(even) {{ background: #f9f9f9; }}
+  .footer {{ background: #1a1a2e; color: #7ec8e3; padding: 20px; text-align: center; font-size: 12px; margin-top: 40px; }}
+</style></head><body>
+
+<div class="cover">
+  <h1>PORTFOLIO ESG GREENWASHING REPORT</h1>
+  <h2>{total} Companies | S&P 500 + NIFTY 50</h2>
+  <div class="meta">Generated: {now}</div>
+</div>
+
+<div class="content">
+<h2>Portfolio Overview</h2>
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="value">{total}</div><div class="label">Total Companies</div></div>
+  <div class="kpi-card" style="border-top-color:#e74c3c;"><div class="value" style="color:#e74c3c;">{high_risk}</div><div class="label">High Risk (60+)</div></div>
+  <div class="kpi-card" style="border-top-color:#ff9800;"><div class="value" style="color:#ff9800;">{moderate}</div><div class="label">Moderate (40-60)</div></div>
+  <div class="kpi-card" style="border-top-color:#27ae60;"><div class="value" style="color:#27ae60;">{low_risk}</div><div class="label">Low Risk (&lt;40)</div></div>
+</div>
+
+<h2>Sector-Level Summary</h2>
+<table><tr><th>Sector</th><th>Companies</th><th>Avg Risk</th><th>Max Risk</th><th>High Risk Count</th></tr>
+{sector_rows}</table>
+
+<h2>Top 20 Highest Risk Companies</h2>
+<table><tr><th>Company</th><th>Sector</th><th>Risk Score</th><th>Risk Tier</th></tr>
+{top20_rows}</table>
+
+</div>
+<div class="footer">ESG Greenwashing Detection System | VNR VJIET Team-18 | {now}</div>
+</body></html>"""
+
+            st.success("Portfolio report generated!")
+            st.components.v1.html(portfolio_html, height=800, scrolling=True)
+
+            st.download_button(
+                label="Download Portfolio Report (HTML)",
+                data=portfolio_html,
+                file_name="ESG_Portfolio_Report.html",
+                mime="text/html",
+                use_container_width=True,
+            )
+
+            # Full data CSV
+            full_csv = df.to_csv(index=False)
+            st.download_button(
+                label="Download Full Data (CSV)",
+                data=full_csv,
+                file_name="ESG_Portfolio_Full_Data.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+
+# ============================================================================
+# PAGE 9: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -2317,6 +2904,8 @@ def main():
         page_realtime_intelligence(data)
     elif page == "ESG Report Analyzer (AI)":
         page_esg_report_analyzer(data)
+    elif page == "Report Generator":
+        page_report_generator(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
