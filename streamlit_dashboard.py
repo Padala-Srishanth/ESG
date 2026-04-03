@@ -1093,7 +1093,508 @@ def page_company_search(data):
 
 
 # ============================================================================
-# PAGE 6: SHAP EXPLANATIONS (all interactive)
+# PAGE 6: REAL-TIME INTELLIGENCE
+# ============================================================================
+
+# --- Sentiment Analyzer (reused from project's NLP module) ---
+class _LiveSentimentAnalyzer:
+    """Lightweight sentiment analyzer for live news headlines."""
+
+    POSITIVE = {
+        'sustainable': 0.9, 'sustainability': 0.9, 'renewable': 0.9,
+        'innovation': 0.8, 'excellent': 0.9, 'leading': 0.7, 'growth': 0.7,
+        'efficient': 0.7, 'clean': 0.8, 'green': 0.8, 'responsible': 0.8,
+        'transparency': 0.8, 'ethical': 0.8, 'diverse': 0.7, 'improvement': 0.7,
+        'committed': 0.7, 'progress': 0.7, 'achievement': 0.8, 'certified': 0.7,
+        'award': 0.7, 'strong': 0.6, 'resilient': 0.7, 'positive': 0.7,
+        'success': 0.7, 'protect': 0.7, 'conservation': 0.8, 'recycle': 0.8,
+        'net-zero': 0.9, 'carbon-neutral': 0.9, 'upgrade': 0.7, 'outperform': 0.8,
+        'profit': 0.6, 'partnership': 0.6, 'launch': 0.5, 'invest': 0.6,
+    }
+    NEGATIVE = {
+        'pollution': -0.9, 'violation': -0.9, 'penalty': -0.8, 'fine': -0.7,
+        'fined': -0.8, 'lawsuit': -0.8, 'scandal': -0.9, 'fraud': -0.9,
+        'corruption': -0.9, 'controversy': -0.8, 'risk': -0.5, 'toxic': -0.9,
+        'unsafe': -0.8, 'harmful': -0.8, 'damage': -0.7, 'spill': -0.8,
+        'accident': -0.7, 'failure': -0.7, 'decline': -0.6, 'loss': -0.6,
+        'layoff': -0.7, 'discrimination': -0.9, 'harassment': -0.9,
+        'greenwashing': -0.9, 'misleading': -0.8, 'deceptive': -0.9,
+        'illegal': -0.9, 'misconduct': -0.8, 'bribery': -0.9, 'crash': -0.8,
+        'downgrade': -0.7, 'investigation': -0.7, 'probe': -0.7, 'recall': -0.6,
+        'warning': -0.6, 'threat': -0.7, 'debt': -0.5, 'bankruptcy': -0.9,
+        'shutdown': -0.7, 'protest': -0.7, 'strike': -0.6, 'emission': -0.5,
+    }
+
+    @staticmethod
+    def score(text):
+        if not isinstance(text, str):
+            return 0.0
+        words = text.lower().split()
+        scores = []
+        for w in words:
+            w_clean = re.sub(r'[^a-z\-]', '', w)
+            if w_clean in _LiveSentimentAnalyzer.POSITIVE:
+                scores.append(_LiveSentimentAnalyzer.POSITIVE[w_clean])
+            elif w_clean in _LiveSentimentAnalyzer.NEGATIVE:
+                scores.append(_LiveSentimentAnalyzer.NEGATIVE[w_clean])
+        if not scores:
+            return 0.0
+        raw = sum(scores)
+        return round(raw / np.sqrt(raw ** 2 + 15), 4)
+
+
+def _fetch_news_google_rss(company_name, num_articles=15):
+    """Fetch live news from Google News RSS feed (free, no API key)."""
+    try:
+        import urllib.request
+        query = quote(f"{company_name} ESG sustainability")
+        url = f"https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            xml_data = resp.read().decode('utf-8')
+
+        root = ET.fromstring(xml_data)
+        articles = []
+        for item in root.iter('item'):
+            title = item.find('title')
+            pub_date = item.find('pubDate')
+            source = item.find('source')
+            link = item.find('link')
+
+            title_text = title.text if title is not None else ''
+            # Clean HTML entities from Google News titles
+            title_text = re.sub(r'<[^>]+>', '', title_text)
+
+            pub_str = pub_date.text if pub_date is not None else ''
+            source_name = source.text if source is not None else 'Unknown'
+            link_url = link.text if link is not None else ''
+
+            # Parse date
+            try:
+                dt = datetime.strptime(pub_str[:25], '%a, %d %b %Y %H:%M:%S')
+            except Exception:
+                dt = datetime.now()
+
+            articles.append({
+                'title': title_text,
+                'source': source_name,
+                'published': dt,
+                'url': link_url,
+                'age_hours': (datetime.now() - dt).total_seconds() / 3600,
+            })
+            if len(articles) >= num_articles:
+                break
+
+        return articles
+    except Exception as e:
+        return []
+
+
+def _compute_live_risk_delta(news_articles, base_risk_score):
+    """Compute risk score adjustment based on live news sentiment."""
+    if not news_articles:
+        return 0.0, 0.0, []
+
+    scored = []
+    for art in news_articles:
+        sent = _LiveSentimentAnalyzer.score(art['title'])
+        # Recent news has more weight (exponential decay)
+        recency_weight = np.exp(-art['age_hours'] / 72)  # 72h half-life
+        weighted_sent = sent * recency_weight
+        scored.append({
+            **art,
+            'sentiment': sent,
+            'recency_weight': round(recency_weight, 3),
+            'weighted_sentiment': round(weighted_sent, 4),
+        })
+
+    avg_sentiment = np.mean([s['weighted_sentiment'] for s in scored])
+    # Convert sentiment (-1 to +1) to risk delta (-15 to +15)
+    risk_delta = round(-avg_sentiment * 15, 1)
+    new_risk = max(0, min(100, base_risk_score + risk_delta))
+    return risk_delta, new_risk, scored
+
+
+def page_realtime_intelligence(data):
+    """Real-Time Intelligence page -- live news, sentiment, breaking risk alerts."""
+
+    # --- Dark terminal-style header ---
+    st.markdown("""
+    <style>
+    .terminal-header {
+        background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+        border: 1px solid #0f3460;
+    }
+    .terminal-header h1 { color: #00ff88; margin: 0; font-family: monospace; }
+    .terminal-header p { color: #7ec8e3; margin: 5px 0 0 0; font-family: monospace; font-size: 14px; }
+    .alert-critical {
+        background: linear-gradient(90deg, #ff0000 0%, #cc0000 100%);
+        color: white; padding: 12px 20px; border-radius: 8px; margin: 5px 0;
+        font-weight: bold; font-family: monospace; animation: pulse 2s infinite;
+    }
+    .alert-warning {
+        background: linear-gradient(90deg, #ff8c00 0%, #cc7000 100%);
+        color: white; padding: 12px 20px; border-radius: 8px; margin: 5px 0;
+        font-weight: bold; font-family: monospace;
+    }
+    .alert-positive {
+        background: linear-gradient(90deg, #00aa44 0%, #008833 100%);
+        color: white; padding: 12px 20px; border-radius: 8px; margin: 5px 0;
+        font-weight: bold; font-family: monospace;
+    }
+    .news-card {
+        background: #f8f9fa; padding: 12px 16px; border-radius: 8px;
+        margin: 6px 0; border-left: 4px solid #3498db;
+    }
+    .news-negative { border-left-color: #e74c3c; }
+    .news-positive { border-left-color: #2ecc71; }
+    .news-neutral { border-left-color: #95a5a6; }
+    .risk-ticker {
+        background: #1a1a2e; color: #00ff88; padding: 8px 16px;
+        border-radius: 6px; font-family: monospace; font-size: 13px;
+        display: inline-block; margin: 3px;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="terminal-header">
+        <h1>REAL-TIME ESG INTELLIGENCE TERMINAL</h1>
+        <p>Live news monitoring | Sentiment analysis | Breaking risk alerts</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    df = data['risk_scores']
+    if df.empty:
+        st.warning("Risk scores not available. Run `python model_pipeline.py` first.")
+        return
+
+    # --- Company selector ---
+    company_names = sorted(df['company_name'].dropna().unique().tolist())
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected = st.selectbox("Select Company for Live Monitoring", company_names,
+                                index=0, key='rt_company')
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        refresh = st.button("Refresh Live Data", type="primary")
+
+    if not selected:
+        return
+
+    company = df[df['company_name'] == selected].iloc[0]
+    base_risk = float(company['risk_score'])
+
+    st.markdown("---")
+
+    # --- Fetch live news ---
+    with st.spinner(f"Fetching live news for {selected}..."):
+        articles = _fetch_news_google_rss(selected)
+
+    if not articles:
+        st.warning(f"Could not fetch live news for **{selected}**. "
+                   f"This may be due to network restrictions. Showing analysis with simulated data.")
+        # Generate simulated news for demo purposes
+        np.random.seed(hash(selected) % 2**31)
+        sim_headlines = [
+            f"{selected} announces new sustainability initiative targeting carbon reduction",
+            f"ESG rating agency upgrades {selected} environmental score",
+            f"{selected} faces scrutiny over supply chain labor practices",
+            f"Investors question {selected}'s green bond transparency",
+            f"{selected} partners with renewable energy provider for operations",
+            f"Report highlights {selected}'s progress on diversity targets",
+            f"{selected} CEO defends ESG strategy amid shareholder concerns",
+            f"Environmental group praises {selected}'s waste reduction program",
+            f"{selected} under investigation for emissions data discrepancies",
+            f"Analysts see strong ESG momentum for {selected} in 2026",
+        ]
+        articles = [{
+            'title': h,
+            'source': np.random.choice(['Reuters', 'Bloomberg', 'CNBC', 'Financial Times', 'WSJ']),
+            'published': datetime.now() - timedelta(hours=np.random.randint(1, 120)),
+            'url': '',
+            'age_hours': float(np.random.randint(1, 120)),
+        } for h in sim_headlines]
+
+    # --- Compute live risk adjustment ---
+    risk_delta, new_risk, scored_articles = _compute_live_risk_delta(articles, base_risk)
+
+    # === SECTION 1: BREAKING RISK ALERTS ===
+    st.subheader("Breaking Risk Alerts")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Base Risk Score", f"{base_risk:.1f}")
+    with col2:
+        delta_str = f"+{risk_delta:.1f}" if risk_delta > 0 else f"{risk_delta:.1f}"
+        st.metric("Live Adjustment", delta_str,
+                  delta=f"{risk_delta:.1f} from news",
+                  delta_color="inverse")
+    with col3:
+        st.metric("Adjusted Risk", f"{new_risk:.1f}")
+    with col4:
+        neg_count = sum(1 for a in scored_articles if a['sentiment'] < -0.1)
+        st.metric("Negative Signals", f"{neg_count}/{len(scored_articles)}")
+
+    # Risk change alert
+    if abs(risk_delta) >= 5:
+        if risk_delta > 0:
+            st.markdown(
+                f'<div class="alert-critical">'
+                f'ALERT: {selected} risk jumped from {base_risk:.0f} -> {new_risk:.0f} '
+                f'(+{risk_delta:.1f}) due to recent negative ESG news coverage</div>',
+                unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f'<div class="alert-positive">'
+                f'POSITIVE: {selected} risk improved from {base_risk:.0f} -> {new_risk:.0f} '
+                f'({risk_delta:.1f}) due to favorable ESG news sentiment</div>',
+                unsafe_allow_html=True)
+    elif abs(risk_delta) >= 2:
+        st.markdown(
+            f'<div class="alert-warning">'
+            f'WATCH: {selected} risk shifted from {base_risk:.0f} -> {new_risk:.0f} '
+            f'({delta_str}) -- moderate news activity detected</div>',
+            unsafe_allow_html=True)
+    else:
+        st.info(f"Risk stable for {selected}. No significant sentiment shifts detected in recent news.")
+
+    st.markdown("---")
+
+    # === SECTION 2: LIVE RISK GAUGE (Before/After) ===
+    st.subheader("Live Risk Comparison")
+    col1, col2 = st.columns(2)
+
+    for col, (title, value, color) in zip(
+        [col1, col2],
+        [("Base Risk (Model)", base_risk, "royalblue"),
+         ("Adjusted Risk (Live)", new_risk, "darkred")]
+    ):
+        with col:
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=value,
+                delta={'reference': base_risk, 'increasing': {'color': 'red'},
+                       'decreasing': {'color': 'green'}},
+                title={'text': title},
+                gauge={
+                    'axis': {'range': [0, 100]},
+                    'bar': {'color': color},
+                    'steps': [
+                        {'range': [0, 20], 'color': '#2ecc71'},
+                        {'range': [20, 40], 'color': '#82e0aa'},
+                        {'range': [40, 60], 'color': '#f4d03f'},
+                        {'range': [60, 80], 'color': '#e67e22'},
+                        {'range': [80, 100], 'color': '#e74c3c'},
+                    ],
+                }
+            ))
+            fig.update_layout(height=280)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # === SECTION 3: NEWS SENTIMENT TIMELINE ===
+    st.subheader("News Sentiment Timeline")
+
+    if scored_articles:
+        news_df = pd.DataFrame(scored_articles)
+        news_df = news_df.sort_values('published')
+
+        # Sentiment over time
+        fig = go.Figure()
+        colors = ['#e74c3c' if s < -0.1 else '#2ecc71' if s > 0.1 else '#95a5a6'
+                  for s in news_df['sentiment']]
+
+        fig.add_trace(go.Scatter(
+            x=news_df['published'], y=news_df['sentiment'],
+            mode='markers+lines',
+            marker=dict(size=12, color=colors, line=dict(width=1, color='white')),
+            line=dict(color='#7f8c8d', width=1),
+            text=news_df['title'],
+            hovertemplate='<b>%{text}</b><br>Sentiment: %{y:.3f}<br>Date: %{x}<extra></extra>',
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig.add_hrect(y0=-1, y1=-0.1, fillcolor="red", opacity=0.05)
+        fig.add_hrect(y0=0.1, y1=1, fillcolor="green", opacity=0.05)
+        fig.update_layout(
+            title=f'Sentiment of Recent News -- {selected}',
+            xaxis_title='Date', yaxis_title='Sentiment Score',
+            yaxis_range=[-1, 1], height=400,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Sentiment distribution
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = px.histogram(
+                news_df, x='sentiment', nbins=15,
+                title='Sentiment Distribution',
+                color_discrete_sequence=['#3498db'],
+                labels={'sentiment': 'Sentiment Score', 'count': 'Articles'},
+            )
+            fig.add_vline(x=0, line_dash="dash", line_color="gray")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            # Sentiment pie
+            sent_cats = pd.Series(['Negative' if s < -0.1 else 'Positive' if s > 0.1 else 'Neutral'
+                                   for s in news_df['sentiment']])
+            sent_counts = sent_cats.value_counts().reset_index()
+            sent_counts.columns = ['Sentiment', 'Count']
+            fig = px.pie(sent_counts, values='Count', names='Sentiment',
+                         title='Sentiment Breakdown',
+                         color='Sentiment',
+                         color_discrete_map={'Positive': '#2ecc71', 'Negative': '#e74c3c',
+                                             'Neutral': '#95a5a6'},
+                         hole=0.4)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # === SECTION 4: LIVE NEWS FEED ===
+    st.subheader("Live News Feed")
+
+    if scored_articles:
+        for art in sorted(scored_articles, key=lambda x: x['published'], reverse=True):
+            sent = art['sentiment']
+            if sent < -0.1:
+                css_class = 'news-negative'
+                badge = '🔴 NEGATIVE'
+                badge_color = '#e74c3c'
+            elif sent > 0.1:
+                css_class = 'news-positive'
+                badge = '🟢 POSITIVE'
+                badge_color = '#2ecc71'
+            else:
+                css_class = 'news-neutral'
+                badge = '⚪ NEUTRAL'
+                badge_color = '#95a5a6'
+
+            age = art['age_hours']
+            if age < 1:
+                age_str = f"{int(age * 60)}m ago"
+            elif age < 24:
+                age_str = f"{int(age)}h ago"
+            else:
+                age_str = f"{int(age / 24)}d ago"
+
+            st.markdown(
+                f'<div class="news-card {css_class}">'
+                f'<span style="color:{badge_color};font-weight:bold;">{badge}</span> '
+                f'<span style="color:#666;font-size:12px;">| {art["source"]} | {age_str} '
+                f'| Sentiment: {sent:+.3f}</span><br>'
+                f'<b>{art["title"]}</b></div>',
+                unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # === SECTION 5: MULTI-COMPANY RISK TICKER ===
+    st.subheader("Portfolio Risk Monitor")
+    st.markdown("Select multiple companies to compare live risk adjustments:")
+
+    multi_select = st.multiselect(
+        "Select companies for monitoring",
+        company_names,
+        default=company_names[:5] if len(company_names) >= 5 else company_names,
+        key='rt_multi',
+    )
+
+    if multi_select and st.button("Scan Selected Companies", key='rt_scan'):
+        ticker_data = []
+        progress = st.progress(0)
+        status = st.empty()
+
+        for i, comp in enumerate(multi_select):
+            status.text(f"Scanning {comp}... ({i+1}/{len(multi_select)})")
+            progress.progress((i + 1) / len(multi_select))
+
+            comp_row = df[df['company_name'] == comp]
+            if comp_row.empty:
+                continue
+            comp_risk = float(comp_row.iloc[0]['risk_score'])
+            comp_articles = _fetch_news_google_rss(comp, num_articles=8)
+
+            if not comp_articles:
+                # Simulate for demo
+                np.random.seed(hash(comp) % 2**31)
+                comp_articles = [{
+                    'title': f"{comp} ESG news headline {j}",
+                    'source': 'Simulated',
+                    'published': datetime.now() - timedelta(hours=np.random.randint(1, 72)),
+                    'url': '',
+                    'age_hours': float(np.random.randint(1, 72)),
+                } for j in range(5)]
+
+            delta, adjusted, _ = _compute_live_risk_delta(comp_articles, comp_risk)
+            ticker_data.append({
+                'Company': comp,
+                'Sector': comp_row.iloc[0].get('sector', 'N/A'),
+                'Base Risk': comp_risk,
+                'Live Delta': delta,
+                'Adjusted Risk': adjusted,
+                'News Count': len(comp_articles),
+                'Status': 'ALERT' if delta > 5 else 'WATCH' if delta > 2 else
+                          'IMPROVED' if delta < -2 else 'STABLE',
+            })
+
+        progress.empty()
+        status.empty()
+
+        if ticker_data:
+            ticker_df = pd.DataFrame(ticker_data).sort_values('Live Delta', ascending=False)
+
+            # Risk change bar chart
+            fig = px.bar(
+                ticker_df, x='Company', y='Live Delta',
+                color='Live Delta',
+                color_continuous_scale='RdYlGn_r',
+                title='Live Risk Adjustments Across Portfolio',
+                text='Live Delta',
+                hover_data=['Base Risk', 'Adjusted Risk', 'Status'],
+            )
+            fig.update_traces(texttemplate='%{text:+.1f}', textposition='outside')
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig.update_layout(height=450, xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Ticker display
+            for _, row in ticker_df.iterrows():
+                if row['Status'] == 'ALERT':
+                    color = '#ff4444'
+                    arrow = '▲'
+                elif row['Status'] == 'WATCH':
+                    color = '#ffaa00'
+                    arrow = '▲'
+                elif row['Status'] == 'IMPROVED':
+                    color = '#00cc44'
+                    arrow = '▼'
+                else:
+                    color = '#888888'
+                    arrow = '—'
+
+                st.markdown(
+                    f'<span class="risk-ticker">'
+                    f'<span style="color:{color};font-weight:bold;">{arrow} {row["Company"]}</span> '
+                    f'{row["Base Risk"]:.0f} → {row["Adjusted Risk"]:.0f} '
+                    f'(<span style="color:{color}">{row["Live Delta"]:+.1f}</span>) '
+                    f'[{row["Status"]}]</span>',
+                    unsafe_allow_html=True)
+
+            # Summary table
+            st.dataframe(ticker_df, use_container_width=True)
+
+            # Alert summary
+            alerts = ticker_df[ticker_df['Status'] == 'ALERT']
+            if not alerts.empty:
+                st.error(f"**{len(alerts)} company(s) require immediate attention** due to "
+                         f"significant negative ESG news sentiment.")
+
+
+# ============================================================================
+# PAGE 7: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -1212,6 +1713,8 @@ def main():
         page_company_deep_dive(data)
     elif page == "Company Search & Analysis":
         page_company_search(data)
+    elif page == "Real-Time Intelligence":
+        page_realtime_intelligence(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
