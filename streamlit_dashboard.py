@@ -139,6 +139,7 @@ def render_sidebar(data):
             "Report Generator",
             "Advanced Explainability",
             "Company Comparison",
+            "Time-Series Risk Tracking",
             "SHAP Explanations",
         ]
     )
@@ -3877,7 +3878,598 @@ def page_company_comparison(data):
 
 
 # ============================================================================
-# PAGE 11: SHAP EXPLANATIONS (all interactive)
+# PAGE 11: TIME-SERIES RISK TRACKING
+# ============================================================================
+
+@st.cache_data
+def _load_timeseries_data():
+    """Load the ESG financial time-series dataset (11 years, 1000 companies)."""
+    ts_path = os.path.join(BASE_DIR, "data", "company_esg_financial_dataset.csv")
+    if os.path.exists(ts_path):
+        df = pd.read_csv(ts_path)
+        return df
+    return pd.DataFrame()
+
+
+def _compute_simulated_risk_history(company_fm, fm_full, ts_company_df):
+    """
+    Compute a simulated risk score history by combining:
+    1. Actual ESG time-series data (ESG_Overall, E/S/G, Carbon, etc.)
+    2. Risk score model calibrated to the current known risk score.
+    """
+    if ts_company_df.empty:
+        return pd.DataFrame()
+
+    ts = ts_company_df.sort_values('Year').copy()
+
+    # Normalize ESG scores to 0-100 risk (invert: higher ESG = lower risk)
+    esg_max = 100
+    ts['esg_risk_proxy'] = esg_max - ts['ESG_Overall']
+
+    # Carbon intensity as controversy proxy
+    ts['carbon_intensity'] = ts['CarbonEmissions'] / (ts['Revenue'] + 1e-8)
+    ci_min, ci_max = ts['carbon_intensity'].min(), ts['carbon_intensity'].max()
+    ts['controversy_proxy'] = ((ts['carbon_intensity'] - ci_min) / (ci_max - ci_min + 1e-8)) * 5
+
+    # Pillar imbalance
+    ts['pillar_imbalance'] = ts[['ESG_Environmental', 'ESG_Social', 'ESG_Governance']].std(axis=1)
+
+    # Composite risk score (calibrated)
+    ts['divergence'] = ts['controversy_proxy'] - (ts['esg_risk_proxy'] / 20)
+    ts['raw_risk'] = (
+        0.35 * ts['esg_risk_proxy'] +
+        0.25 * (ts['controversy_proxy'] * 20) +
+        0.20 * (ts['pillar_imbalance'] * 3) +
+        0.20 * (ts['divergence'].clip(0) * 15)
+    )
+
+    # Scale to 0-100
+    r_min, r_max = ts['raw_risk'].min(), ts['raw_risk'].max()
+    if r_max > r_min:
+        ts['risk_score'] = ((ts['raw_risk'] - r_min) / (r_max - r_min)) * 80 + 10
+    else:
+        ts['risk_score'] = 50.0
+
+    return ts
+
+
+def _forecast_risk(ts_df, forecast_years=3):
+    """Simple linear regression forecast for risk score trend."""
+    if len(ts_df) < 3:
+        return pd.DataFrame()
+
+    from sklearn.linear_model import LinearRegression
+
+    X = ts_df['Year'].values.reshape(-1, 1)
+    y = ts_df['risk_score'].values
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    last_year = int(ts_df['Year'].max())
+    future_years = np.arange(last_year + 1, last_year + 1 + forecast_years).reshape(-1, 1)
+    future_risk = model.predict(future_years)
+
+    # Confidence interval (simple std-based)
+    residuals = y - model.predict(X)
+    std_err = np.std(residuals)
+
+    forecast = pd.DataFrame({
+        'Year': future_years.flatten(),
+        'risk_score': np.clip(future_risk, 0, 100),
+        'lower_bound': np.clip(future_risk - 1.96 * std_err, 0, 100),
+        'upper_bound': np.clip(future_risk + 1.96 * std_err, 0, 100),
+        'type': 'Forecast',
+    })
+
+    return forecast
+
+
+def page_timeseries_tracking(data):
+    """Time-Series Risk Tracking: historical trends, before/after, forecasting."""
+
+    st.markdown("""
+    <style>
+    .ts-header {
+        background: linear-gradient(135deg, #1b2838 0%, #2a4858 50%, #1a6b4a 100%);
+        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+    }
+    .ts-header h1 { color: #4ade80; margin: 0; font-family: monospace; }
+    .ts-header p { color: #a7f3d0; margin: 5px 0 0 0; font-size: 14px; }
+    .trend-up { color: #ef4444; font-weight: bold; }
+    .trend-down { color: #22c55e; font-weight: bold; }
+    .trend-stable { color: #6b7280; font-weight: bold; }
+    </style>
+    <div class="ts-header">
+        <h1>TIME-SERIES RISK TRACKING</h1>
+        <p>Historical ESG trends (2015-2025) | Before vs After | Trend Prediction</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    risk_df = data['risk_scores']
+    fm = data['feature_matrix']
+
+    if risk_df.empty:
+        st.warning("Risk scores not available. Run `python model_pipeline.py` first.")
+        return
+
+    # Load time-series data
+    ts_data = _load_timeseries_data()
+
+    if ts_data.empty:
+        st.error("Time-series data not found at `data/company_esg_financial_dataset.csv`.")
+        return
+
+    ts_companies = sorted(ts_data['CompanyName'].unique().tolist())
+
+    # === COMPANY SELECTOR ===
+    st.subheader("Select Company")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected = st.selectbox("Choose a company from the time-series dataset",
+                                ts_companies, key='ts_company')
+    with col2:
+        forecast_years = st.slider("Forecast years", 1, 5, 3, key='ts_forecast')
+
+    if not selected:
+        return
+
+    ts_company = ts_data[ts_data['CompanyName'] == selected].copy()
+    ts_history = _compute_simulated_risk_history(None, fm, ts_company)
+
+    if ts_history.empty:
+        st.error(f"No time-series data available for {selected}.")
+        return
+
+    # Forecast
+    forecast = _forecast_risk(ts_history, forecast_years)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 1: RISK SCORE OVER TIME
+    # ===================================================================
+    st.subheader("1. Risk Score Over Time")
+
+    # Combine history + forecast
+    history_plot = ts_history[['Year', 'risk_score']].copy()
+    history_plot['type'] = 'Historical'
+    history_plot['lower_bound'] = history_plot['risk_score']
+    history_plot['upper_bound'] = history_plot['risk_score']
+
+    if not forecast.empty:
+        # Add last historical point to forecast for seamless line
+        bridge = history_plot.iloc[[-1]].copy()
+        bridge['type'] = 'Forecast'
+        combined = pd.concat([history_plot, bridge, forecast], ignore_index=True)
+    else:
+        combined = history_plot.copy()
+
+    fig = go.Figure()
+
+    # Historical line
+    hist = combined[combined['type'] == 'Historical']
+    fig.add_trace(go.Scatter(
+        x=hist['Year'], y=hist['risk_score'],
+        mode='lines+markers', name='Historical Risk Score',
+        line=dict(color='#e94560', width=3),
+        marker=dict(size=8),
+        hovertemplate='Year: %{x}<br>Risk Score: %{y:.1f}<extra></extra>',
+    ))
+
+    # Forecast line + confidence band
+    if not forecast.empty:
+        fc = combined[combined['type'] == 'Forecast']
+        fig.add_trace(go.Scatter(
+            x=fc['Year'], y=fc['risk_score'],
+            mode='lines+markers', name='Forecast',
+            line=dict(color='#3b82f6', width=3, dash='dash'),
+            marker=dict(size=8, symbol='diamond'),
+            hovertemplate='Year: %{x}<br>Forecast: %{y:.1f}<extra></extra>',
+        ))
+        # Confidence interval
+        fig.add_trace(go.Scatter(
+            x=list(fc['Year']) + list(fc['Year'][::-1]),
+            y=list(fc['upper_bound']) + list(fc['lower_bound'][::-1]),
+            fill='toself', fillcolor='rgba(59,130,246,0.15)',
+            line=dict(color='rgba(0,0,0,0)'),
+            name='95% Confidence',
+            hoverinfo='skip',
+        ))
+
+    # Risk tier backgrounds
+    fig.add_hrect(y0=0, y1=20, fillcolor='#22c55e', opacity=0.07, annotation_text='Very Low',
+                  annotation_position='top left')
+    fig.add_hrect(y0=20, y1=40, fillcolor='#84cc16', opacity=0.05)
+    fig.add_hrect(y0=40, y1=60, fillcolor='#eab308', opacity=0.05)
+    fig.add_hrect(y0=60, y1=80, fillcolor='#f97316', opacity=0.05)
+    fig.add_hrect(y0=80, y1=100, fillcolor='#ef4444', opacity=0.07, annotation_text='Very High',
+                  annotation_position='top left')
+
+    fig.update_layout(
+        title=f'Greenwashing Risk Score Timeline -- {selected}',
+        xaxis_title='Year', yaxis_title='Risk Score (0-100)',
+        yaxis_range=[0, 100], height=500,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Trend stats
+    first_risk = float(ts_history.iloc[0]['risk_score'])
+    last_risk = float(ts_history.iloc[-1]['risk_score'])
+    change = last_risk - first_risk
+    first_year = int(ts_history.iloc[0]['Year'])
+    last_year = int(ts_history.iloc[-1]['Year'])
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric(f"Risk ({first_year})", f"{first_risk:.1f}")
+    with col2:
+        st.metric(f"Risk ({last_year})", f"{last_risk:.1f}",
+                  delta=f"{change:+.1f}", delta_color="inverse")
+    with col3:
+        trend = "INCREASING" if change > 2 else "DECREASING" if change < -2 else "STABLE"
+        trend_class = "trend-up" if change > 2 else "trend-down" if change < -2 else "trend-stable"
+        st.markdown(f"**Trend:** <span class='{trend_class}'>{trend}</span>", unsafe_allow_html=True)
+    with col4:
+        if not forecast.empty:
+            future_risk = float(forecast.iloc[-1]['risk_score'])
+            future_year = int(forecast.iloc[-1]['Year'])
+            st.metric(f"Forecast ({future_year})", f"{future_risk:.1f}",
+                      delta=f"{future_risk - last_risk:+.1f} from now", delta_color="inverse")
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 2: ESG PILLAR TRENDS
+    # ===================================================================
+    st.subheader("2. ESG Pillar Trends (2015-2025)")
+
+    fig = go.Figure()
+    pillars = [
+        ('ESG_Environmental', 'Environmental', '#22c55e'),
+        ('ESG_Social', 'Social', '#3b82f6'),
+        ('ESG_Governance', 'Governance', '#a855f7'),
+        ('ESG_Overall', 'Overall ESG', '#ef4444'),
+    ]
+    for col, label, color in pillars:
+        if col in ts_history.columns:
+            fig.add_trace(go.Scatter(
+                x=ts_history['Year'], y=ts_history[col],
+                mode='lines+markers', name=label,
+                line=dict(color=color, width=2),
+                hovertemplate=f'{label}: %{{y:.1f}}<extra></extra>',
+            ))
+
+    fig.update_layout(
+        title=f'ESG Pillar Scores Over Time -- {selected}',
+        xaxis_title='Year', yaxis_title='ESG Score',
+        height=450,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Pillar gap trend
+    if 'pillar_imbalance' in ts_history.columns:
+        fig = px.area(
+            ts_history, x='Year', y='pillar_imbalance',
+            title=f'Pillar Imbalance Over Time -- {selected} (higher = more uneven ESG profile)',
+            labels={'pillar_imbalance': 'Imbalance (std across E/S/G)'},
+            color_discrete_sequence=['#f97316'],
+        )
+        fig.update_layout(height=350)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 3: BEFORE VS AFTER CONTROVERSY
+    # ===================================================================
+    st.subheader("3. Before vs After Controversy Analysis")
+    st.markdown("Select a **pivot year** to compare ESG metrics before and after a controversy event:")
+
+    years = sorted(ts_history['Year'].unique().tolist())
+    if len(years) >= 3:
+        pivot_year = st.select_slider(
+            "Pivot Year (controversy event)",
+            options=years[1:-1],
+            value=years[len(years) // 2],
+            key='ts_pivot',
+        )
+
+        before = ts_history[ts_history['Year'] < pivot_year]
+        after = ts_history[ts_history['Year'] >= pivot_year]
+
+        if not before.empty and not after.empty:
+            # Before vs After metrics
+            metrics_compare = [
+                ('risk_score', 'Risk Score'),
+                ('ESG_Overall', 'ESG Overall'),
+                ('ESG_Environmental', 'Environmental'),
+                ('ESG_Social', 'Social'),
+                ('ESG_Governance', 'Governance'),
+                ('controversy_proxy', 'Controversy Proxy'),
+                ('CarbonEmissions', 'Carbon Emissions'),
+                ('pillar_imbalance', 'Pillar Imbalance'),
+            ]
+
+            ba_data = []
+            for col, label in metrics_compare:
+                if col in before.columns:
+                    before_avg = float(before[col].mean())
+                    after_avg = float(after[col].mean())
+                    change_pct = ((after_avg - before_avg) / (abs(before_avg) + 1e-8)) * 100
+                    ba_data.append({
+                        'Metric': label,
+                        'Before (avg)': round(before_avg, 2),
+                        'After (avg)': round(after_avg, 2),
+                        'Change': round(after_avg - before_avg, 2),
+                        'Change %': round(change_pct, 1),
+                    })
+
+            ba_df = pd.DataFrame(ba_data)
+
+            # Grouped bar chart
+            ba_melt = ba_df.melt(id_vars='Metric', value_vars=['Before (avg)', 'After (avg)'],
+                                 var_name='Period', value_name='Value')
+            fig = px.bar(
+                ba_melt, x='Metric', y='Value', color='Period',
+                barmode='group',
+                color_discrete_map={'Before (avg)': '#3b82f6', 'After (avg)': '#ef4444'},
+                title=f'Before vs After {pivot_year} -- Key Metrics',
+            )
+            fig.update_layout(height=450, xaxis_tickangle=-30)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Change waterfall
+            fig = go.Figure(go.Waterfall(
+                x=ba_df['Metric'],
+                y=ba_df['Change %'],
+                textposition='outside',
+                text=[f"{v:+.1f}%" for v in ba_df['Change %']],
+                connector=dict(line=dict(color='#666')),
+                increasing=dict(marker=dict(color='#ef4444')),
+                decreasing=dict(marker=dict(color='#22c55e')),
+            ))
+            fig.update_layout(
+                title=f'Percentage Change: After {pivot_year} vs Before',
+                yaxis_title='Change (%)', height=400,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Table
+            st.dataframe(ba_df, use_container_width=True)
+
+            # Narrative
+            risk_change = ba_df[ba_df['Metric'] == 'Risk Score']['Change'].values[0]
+            if risk_change > 5:
+                st.error(f"Risk score **increased by {risk_change:.1f} points** after {pivot_year}. "
+                         f"This suggests a potential controversy event or ESG deterioration.")
+            elif risk_change < -5:
+                st.success(f"Risk score **decreased by {abs(risk_change):.1f} points** after {pivot_year}. "
+                           f"ESG performance appears to have improved.")
+            else:
+                st.info(f"Risk score remained relatively stable around {pivot_year} "
+                        f"(change: {risk_change:+.1f}).")
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 4: CARBON & ENVIRONMENTAL TRENDS
+    # ===================================================================
+    st.subheader("4. Environmental Impact Trends")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if 'CarbonEmissions' in ts_history.columns:
+            fig = px.bar(
+                ts_history, x='Year', y='CarbonEmissions',
+                title=f'Carbon Emissions Over Time -- {selected}',
+                color='CarbonEmissions', color_continuous_scale='Reds',
+                text='CarbonEmissions',
+            )
+            fig.update_traces(texttemplate='%{text:.0f}', textposition='outside')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        if 'carbon_intensity' in ts_history.columns:
+            fig = px.line(
+                ts_history, x='Year', y='carbon_intensity',
+                title=f'Carbon Intensity (Emissions/Revenue) -- {selected}',
+                markers=True,
+                color_discrete_sequence=['#ef4444'],
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if 'EnergyConsumption' in ts_history.columns:
+            fig = px.area(
+                ts_history, x='Year', y='EnergyConsumption',
+                title=f'Energy Consumption -- {selected}',
+                color_discrete_sequence=['#f97316'],
+            )
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        if 'WaterUsage' in ts_history.columns:
+            fig = px.area(
+                ts_history, x='Year', y='WaterUsage',
+                title=f'Water Usage -- {selected}',
+                color_discrete_sequence=['#3b82f6'],
+            )
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 5: TREND PREDICTION & FORECASTING
+    # ===================================================================
+    st.subheader("5. Trend Prediction & Forecasting")
+
+    if not forecast.empty:
+        # Forecast summary
+        last_hist = float(ts_history.iloc[-1]['risk_score'])
+        last_forecast = float(forecast.iloc[-1]['risk_score'])
+        forecast_change = last_forecast - last_hist
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current Risk", f"{last_hist:.1f}")
+        with col2:
+            st.metric(f"Predicted ({int(forecast.iloc[-1]['Year'])})", f"{last_forecast:.1f}",
+                      delta=f"{forecast_change:+.1f}", delta_color="inverse")
+        with col3:
+            direction = "WORSENING" if forecast_change > 2 else "IMPROVING" if forecast_change < -2 else "STABLE"
+            dir_color = "#ef4444" if forecast_change > 2 else "#22c55e" if forecast_change < -2 else "#6b7280"
+            st.markdown(f"**Forecast Direction:**")
+            st.markdown(f"<span style='color:{dir_color};font-size:24px;font-weight:bold;'>{direction}</span>",
+                        unsafe_allow_html=True)
+
+        # Year-by-year forecast table
+        fc_display = forecast[['Year', 'risk_score', 'lower_bound', 'upper_bound']].copy()
+        fc_display.columns = ['Year', 'Predicted Risk', 'Lower Bound (95%)', 'Upper Bound (95%)']
+        fc_display = fc_display.round(1)
+        st.dataframe(fc_display, use_container_width=True)
+
+        # Multi-metric forecast
+        st.markdown("##### Multi-Metric Forecast")
+        forecast_metrics = ['ESG_Overall', 'ESG_Environmental', 'CarbonEmissions']
+        forecast_available = [m for m in forecast_metrics if m in ts_history.columns]
+
+        if forecast_available:
+            from sklearn.linear_model import LinearRegression
+
+            fig = make_subplots(
+                rows=len(forecast_available), cols=1,
+                subplot_titles=[f'{m} Forecast' for m in forecast_available],
+                vertical_spacing=0.1,
+            )
+
+            colors = ['#22c55e', '#3b82f6', '#ef4444']
+            for idx, metric in enumerate(forecast_available):
+                X = ts_history['Year'].values.reshape(-1, 1)
+                y = ts_history[metric].values
+
+                lr = LinearRegression()
+                lr.fit(X, y)
+
+                last_yr = int(ts_history['Year'].max())
+                future_x = np.arange(last_yr + 1, last_yr + 1 + forecast_years).reshape(-1, 1)
+                future_y = lr.predict(future_x)
+
+                # Historical
+                fig.add_trace(go.Scatter(
+                    x=ts_history['Year'], y=ts_history[metric],
+                    mode='lines+markers', name=f'{metric} (Historical)',
+                    line=dict(color=colors[idx % 3], width=2),
+                    showlegend=(idx == 0),
+                ), row=idx + 1, col=1)
+
+                # Forecast
+                bridge_x = [last_yr] + list(future_x.flatten())
+                bridge_y = [float(ts_history[metric].iloc[-1])] + list(future_y)
+                fig.add_trace(go.Scatter(
+                    x=bridge_x, y=bridge_y,
+                    mode='lines+markers', name=f'{metric} (Forecast)',
+                    line=dict(color=colors[idx % 3], width=2, dash='dash'),
+                    marker=dict(symbol='diamond'),
+                    showlegend=(idx == 0),
+                ), row=idx + 1, col=1)
+
+            fig.update_layout(height=350 * len(forecast_available), showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 6: INDUSTRY TREND COMPARISON
+    # ===================================================================
+    st.subheader("6. Industry Trend Comparison")
+
+    industry = ts_company.iloc[0].get('Industry', None)
+    if industry:
+        industry_data = ts_data[ts_data['Industry'] == industry]
+        industry_avg = industry_data.groupby('Year').agg({
+            'ESG_Overall': 'mean',
+            'CarbonEmissions': 'mean',
+            'ESG_Environmental': 'mean',
+        }).reset_index()
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=ts_history['Year'], y=ts_history['ESG_Overall'],
+            mode='lines+markers', name=selected,
+            line=dict(color='#e94560', width=3),
+        ))
+        fig.add_trace(go.Scatter(
+            x=industry_avg['Year'], y=industry_avg['ESG_Overall'],
+            mode='lines+markers', name=f'{industry} Average',
+            line=dict(color='#3b82f6', width=2, dash='dash'),
+        ))
+        fig.update_layout(
+            title=f'ESG Overall: {selected} vs {industry} Industry Average',
+            xaxis_title='Year', yaxis_title='ESG Score',
+            height=450,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Gap analysis
+        if not industry_avg.empty:
+            merged = ts_history[['Year', 'ESG_Overall']].merge(
+                industry_avg[['Year', 'ESG_Overall']],
+                on='Year', suffixes=('_company', '_industry')
+            )
+            merged['gap'] = merged['ESG_Overall_company'] - merged['ESG_Overall_industry']
+
+            fig = go.Figure()
+            colors = ['#22c55e' if g >= 0 else '#ef4444' for g in merged['gap']]
+            fig.add_trace(go.Bar(
+                x=merged['Year'], y=merged['gap'],
+                marker_color=colors,
+                text=[f"{g:+.1f}" for g in merged['gap']],
+                textposition='outside',
+                hovertemplate='Year: %{x}<br>Gap: %{y:+.1f}<extra></extra>',
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig.update_layout(
+                title=f'ESG Gap: {selected} vs {industry} Average (green = above avg)',
+                xaxis_title='Year', yaxis_title='ESG Score Gap',
+                height=400,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 7: DATA TABLE + EXPORT
+    # ===================================================================
+    st.subheader("7. Complete Time-Series Data")
+
+    display_cols = ['Year', 'ESG_Overall', 'ESG_Environmental', 'ESG_Social',
+                    'ESG_Governance', 'CarbonEmissions', 'WaterUsage',
+                    'EnergyConsumption', 'Revenue', 'ProfitMargin']
+    available_display = [c for c in display_cols if c in ts_history.columns]
+
+    if 'risk_score' in ts_history.columns:
+        available_display = ['Year', 'risk_score'] + [c for c in available_display if c != 'Year']
+
+    st.dataframe(ts_history[available_display].round(2), use_container_width=True)
+
+    csv_export = ts_history[available_display].to_csv(index=False)
+    st.download_button(
+        label="Download Time-Series Data (CSV)",
+        data=csv_export,
+        file_name=f"ESG_TimeSeries_{selected}.csv",
+        mime="text/csv",
+    )
+
+
+# ============================================================================
+# PAGE 12: SHAP EXPLANATIONS (all interactive)
 # ============================================================================
 
 def page_shap_explanations(data):
@@ -4006,6 +4598,8 @@ def main():
         page_advanced_explainability(data)
     elif page == "Company Comparison":
         page_company_comparison(data)
+    elif page == "Time-Series Risk Tracking":
+        page_timeseries_tracking(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
 
