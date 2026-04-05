@@ -692,7 +692,7 @@ def page_company_search(data):
     """Search any company by name and get a full greenwashing analysis report."""
 
     st.title("Company Search & Analysis")
-    st.markdown("Type a company name to get a **complete greenwashing risk analysis report**.")
+    st.markdown("Select a company to get a **complete greenwashing risk analysis report**.")
 
     df = data['risk_scores']
     fm = data['feature_matrix']
@@ -702,40 +702,22 @@ def page_company_search(data):
         st.warning("Data not available. Run `python model_pipeline.py` first.")
         return
 
-    # --- Search box with autocomplete ---
+    # --- Searchable dropdown with all companies ---
     company_names = sorted(df['company_name'].dropna().unique().tolist())
-    search_query = st.text_input(
-        "Search Company Name",
-        placeholder="Type company name (e.g., Apple, Tesla, Microsoft)...",
+    selected = st.selectbox(
+        "Search & Select Company",
+        options=company_names,
+        index=None,
+        placeholder="Start typing to search (e.g., Apple, Tesla, Adani)...",
+        key='company_search_select',
     )
 
-    # Filter matching companies
-    if search_query:
-        matches = [c for c in company_names if search_query.lower() in c.lower()]
-    else:
-        matches = []
-
-    if search_query and not matches:
-        st.error(f"No company found matching '{search_query}'. Try a different name.")
-        st.markdown("**Available companies (sample):**")
-        st.write(", ".join(company_names[:20]) + "...")
-        return
-
-    if not search_query:
-        st.info("Start typing a company name above to search.")
+    if not selected:
+        st.info("Select a company from the dropdown above. Start typing to filter the list.")
         # Show top 10 highest risk companies as suggestions
         st.subheader("Top 10 Highest Risk Companies")
         top10 = df.nlargest(10, 'risk_score')[['company_name', 'sector', 'risk_score', 'risk_tier']]
         st.dataframe(top10.reset_index(drop=True), use_container_width=True)
-        return
-
-    # Let user pick from matches if multiple
-    if len(matches) == 1:
-        selected = matches[0]
-    else:
-        selected = st.selectbox(f"Found {len(matches)} matches -- select one:", matches)
-
-    if not selected:
         return
 
     # ===================== FULL ANALYSIS REPORT =====================
