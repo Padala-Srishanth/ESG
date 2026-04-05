@@ -66,21 +66,27 @@ def load_data():
     data = {}                                # Dictionary to store all datasets
 
     # Risk scores (main dataset for the dashboard)
-    risk_path = os.path.join(PROCESSED_DIR, "greenwashing_risk_scores.csv")
+    risk_path = os.path.join(PROCESSED_DIR, "greenwashing_risk_scores_expanded.csv")
+    if not os.path.exists(risk_path):
+        risk_path = os.path.join(PROCESSED_DIR, "greenwashing_risk_scores.csv")
     if os.path.exists(risk_path):
         data['risk_scores'] = pd.read_csv(risk_path, index_col=0)
     else:
         data['risk_scores'] = pd.DataFrame()
 
     # Model metrics
-    metrics_path = os.path.join(PROCESSED_DIR, "model_metrics.csv")
+    metrics_path = os.path.join(PROCESSED_DIR, "model_metrics_expanded.csv")
+    if not os.path.exists(metrics_path):
+        metrics_path = os.path.join(PROCESSED_DIR, "model_metrics.csv")
     if os.path.exists(metrics_path):
         data['model_metrics'] = pd.read_csv(metrics_path)
     else:
         data['model_metrics'] = pd.DataFrame()
 
     # Feature importance (best model)
-    fi_path = os.path.join(PROCESSED_DIR, "feature_importance_gradient_boosting.csv")
+    fi_path = os.path.join(PROCESSED_DIR, "feature_importance_expanded.csv")
+    if not os.path.exists(fi_path):
+        fi_path = os.path.join(PROCESSED_DIR, "feature_importance_gradient_boosting.csv")
     if os.path.exists(fi_path):
         data['feature_importance'] = pd.read_csv(fi_path)
     else:
@@ -91,14 +97,18 @@ def load_data():
             data['feature_importance'] = pd.DataFrame()
 
     # Feature matrix (for detailed analysis)
-    fm_path = os.path.join(PROCESSED_DIR, "feature_matrix.csv")
+    fm_path = os.path.join(PROCESSED_DIR, "feature_matrix_expanded.csv")
+    if not os.path.exists(fm_path):
+        fm_path = os.path.join(PROCESSED_DIR, "feature_matrix.csv")
     if os.path.exists(fm_path):
         data['feature_matrix'] = pd.read_csv(fm_path)
     else:
         data['feature_matrix'] = pd.DataFrame()
 
     # Predictions (for confusion matrix data)
-    pred_path = os.path.join(PROCESSED_DIR, "predictions.csv")
+    pred_path = os.path.join(PROCESSED_DIR, "predictions_expanded.csv")
+    if not os.path.exists(pred_path):
+        pred_path = os.path.join(PROCESSED_DIR, "predictions.csv")
     if os.path.exists(pred_path):
         data['predictions'] = pd.read_csv(pred_path)
     else:
@@ -175,7 +185,7 @@ def page_risk_dashboard(data, filters):
     """Main risk score dashboard — all interactive Plotly charts."""
 
     st.title("Greenwashing Risk Score Dashboard")
-    st.markdown("Comprehensive risk assessment of **480 companies** across S&P 500 and NIFTY 50")
+    st.markdown("Comprehensive risk assessment of **835 companies** across S&P 500, NIFTY 50, and Public ESG Ratings")
 
     df = data['risk_scores'].copy()
 
@@ -3250,7 +3260,9 @@ def page_advanced_explainability(data):
         return
 
     # Train lightweight model (cached)
-    fm_path = os.path.join(PROCESSED_DIR, "feature_matrix.csv")
+    fm_path = os.path.join(PROCESSED_DIR, "feature_matrix_expanded.csv")
+    if not os.path.exists(fm_path):
+        fm_path = os.path.join(PROCESSED_DIR, "feature_matrix.csv")
     try:
         model, scaler, feature_cols, fm_full = _train_lightweight_model(fm_path, PROCESSED_DIR)
     except Exception as e:
