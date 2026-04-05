@@ -1858,7 +1858,9 @@ def page_realtime_intelligence(data):
 # ============================================================================
 
 def _extract_pdf_text(uploaded_file):
-    """Extract text from uploaded PDF file."""
+    """Extract text from uploaded PDF file. Tries multiple methods."""
+
+    # Method 1: PyPDF2 (fast, works for text-based PDFs)
     try:
         from PyPDF2 import PdfReader
         uploaded_file.seek(0)
@@ -1869,11 +1871,93 @@ def _extract_pdf_text(uploaded_file):
             if page_text:
                 text += page_text + "\n"
         text = text.strip()
-        # If very little text extracted, it's likely a scanned/image PDF
-        if len(text) < 50:
+        if len(text) >= 50:
+            return text
+    except Exception:
+        pass
+
+    # Method 2: PyMuPDF/fitz (better extraction for complex PDFs)
+    try:
+        import fitz  # PyMuPDF
+        uploaded_file.seek(0)
+        pdf_bytes = uploaded_file.read()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text() + "\n"
+        doc.close()
+        text = text.strip()
+        if len(text) >= 50:
+            return text
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # If both methods fail, return None (caller will use Gemini Vision)
+    return None
+
+
+def _extract_pdf_with_gemini(uploaded_file, api_key):
+    """Use Gemini Vision to extract text from scanned/image-based PDFs."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+
+        uploaded_file.seek(0)
+        pdf_bytes = uploaded_file.read()
+
+        # Upload file to Gemini
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        gemini_file = genai.upload_file(tmp_path, mime_type='application/pdf')
+
+        model = genai.GenerativeModel('gemini-2.0-flash')
+
+        # Retry up to 2 times for rate limits
+        import time
+        response = None
+        for attempt in range(3):
+            try:
+                response = model.generate_content(
+                    [
+                        gemini_file,
+                        "Extract ALL text from this PDF document. Return the complete text content exactly as it appears. "
+                        "If it contains tables, preserve the structure. If it contains images with text, extract that text too. "
+                        "Return ONLY the extracted text, nothing else."
+                    ],
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=8000,
+                        temperature=0.1,
+                    )
+                )
+                break
+            except Exception as retry_err:
+                if "429" in str(retry_err) and attempt < 2:
+                    time.sleep(30)  # Wait 30s before retry
+                    continue
+                raise
+
+        if response is None:
             return None
-        return text
+
+        # Cleanup
+        try:
+            os.unlink(tmp_path)
+            gemini_file.delete()
+        except Exception:
+            pass
+
+        text = response.text.strip()
+        return text if len(text) >= 20 else None
+
     except Exception as e:
+        st.error(f"Gemini Vision error: {str(e)[:200]}")
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.warning("API rate limit reached. Wait 1 minute and try again, or try tomorrow for daily limits.")
         return None
 
 
@@ -2198,22 +2282,33 @@ def page_esg_report_analyzer(data):
             """)
         return
 
-    # --- Extract text from PDF ---
+    # --- Extract text from PDF (multi-method) ---
     with st.spinner("Extracting text from PDF..."):
         report_text = _extract_pdf_text(uploaded_file)
 
     if not report_text:
-        st.error("Could not extract text from PDF. The file may be scanned/image-based.")
-        st.markdown("""
-        **Tips:**
-        - Upload a **text-based PDF** (not a screenshot or scanned document)
-        - ESG/sustainability reports from company websites are usually text-based
-        - Annual reports downloaded from investor relations pages work best
-        - If you only have a scanned PDF, try converting it with an OCR tool first
-        """)
-        return
+        # Fallback: Use Gemini Vision for scanned/image PDFs
+        if api_key and not use_fallback:
+            st.warning("Standard text extraction failed. Using Gemini AI Vision to read the scanned PDF...")
+            with st.spinner("Gemini AI is reading the scanned PDF... (this may take 15-30 seconds)"):
+                report_text = _extract_pdf_with_gemini(uploaded_file, api_key)
 
-    st.success(f"Extracted **{len(report_text):,} characters** from {uploaded_file.name}")
+            if report_text:
+                st.success(f"Gemini Vision extracted **{len(report_text):,} characters** from scanned PDF")
+            else:
+                st.error("Gemini Vision could not extract text from this PDF either. The file may be corrupted or empty.")
+                return
+        else:
+            st.error("Could not extract text from PDF. The file may be scanned/image-based.")
+            st.markdown("""
+            **Tips:**
+            - Enter a Gemini API key above -- it can read scanned/image PDFs using AI Vision
+            - Or upload a **text-based PDF** (not a screenshot)
+            - ESG/sustainability reports from company websites are usually text-based
+            """)
+            return
+    else:
+        st.success(f"Extracted **{len(report_text):,} characters** from {uploaded_file.name}")
 
     # Show extracted text preview
     with st.expander("Preview extracted text", expanded=False):
