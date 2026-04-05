@@ -1096,8 +1096,12 @@ def page_company_search(data):
         for col in fm.columns:
             if col not in ['symbol', 'company_name', 'sector', 'industry', 'description', 'source']:
                 val = company_fm.get(col)
-                if val is not None and not pd.isna(val):
-                    all_features[col] = round(float(val), 6)
+                if val is not None:
+                    try:
+                        if not pd.isna(val):
+                            all_features[col] = round(float(val), 6)
+                    except (ValueError, TypeError):
+                        all_features[col] = str(val)
 
         full_df = pd.DataFrame({
             'Feature': list(all_features.keys()),
@@ -1615,13 +1619,18 @@ def _extract_pdf_text(uploaded_file):
     """Extract text from uploaded PDF file."""
     try:
         from PyPDF2 import PdfReader
+        uploaded_file.seek(0)
         reader = PdfReader(uploaded_file)
         text = ""
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
-        return text.strip()
+        text = text.strip()
+        # If very little text extracted, it's likely a scanned/image PDF
+        if len(text) < 50:
+            return None
+        return text
     except Exception as e:
         return None
 
@@ -1953,6 +1962,13 @@ def page_esg_report_analyzer(data):
 
     if not report_text:
         st.error("Could not extract text from PDF. The file may be scanned/image-based.")
+        st.markdown("""
+        **Tips:**
+        - Upload a **text-based PDF** (not a screenshot or scanned document)
+        - ESG/sustainability reports from company websites are usually text-based
+        - Annual reports downloaded from investor relations pages work best
+        - If you only have a scanned PDF, try converting it with an OCR tool first
+        """)
         return
 
     st.success(f"Extracted **{len(report_text):,} characters** from {uploaded_file.name}")
