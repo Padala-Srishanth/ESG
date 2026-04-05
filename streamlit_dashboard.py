@@ -780,6 +780,264 @@ def page_company_search(data):
         st.success(f"LOW GREENWASHING RISK -- {selected} scores {risk_score:.1f}/100. "
                    f"ESG claims appear largely consistent with actual performance.")
 
+    # ===================== REASON ENGINE =====================
+    st.markdown("---")
+    st.subheader("Why This Rating?")
+    st.markdown("""
+    <style>
+    .reason-box {
+        background: #1a1a2e; border-radius: 12px; padding: 20px 25px;
+        margin: 10px 0; border: 1px solid #333;
+    }
+    .reason-title {
+        font-family: monospace; font-size: 18px; font-weight: bold; margin-bottom: 15px;
+    }
+    .reason-title-high { color: #ff4444; }
+    .reason-title-moderate { color: #ffaa00; }
+    .reason-title-low { color: #00cc66; }
+    .reason-item {
+        padding: 8px 0; border-bottom: 1px solid #2a2a3e; font-size: 14px; color: #e0e0e0;
+    }
+    .reason-item:last-child { border-bottom: none; }
+    .reason-icon { margin-right: 10px; }
+    .reason-detail { color: #999; font-size: 12px; margin-left: 28px; }
+    .reason-tag {
+        display: inline-block; padding: 2px 8px; border-radius: 10px;
+        font-size: 11px; font-weight: bold; margin-left: 8px;
+    }
+    .tag-critical { background: #dc2626; color: white; }
+    .tag-warning { background: #d97706; color: white; }
+    .tag-good { background: #16a34a; color: white; }
+    .tag-info { background: #2563eb; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- Build reasons from actual data ---
+    reasons = []
+
+    # 1. ESG-Controversy Divergence
+    divergence = float(company_fm.get('esg_controversy_divergence', 0)) if not pd.isna(company_fm.get('esg_controversy_divergence', 0)) else 0
+    div_pct = float((fm[fm['esg_controversy_divergence'] <= divergence].shape[0] / len(fm)) * 100) if 'esg_controversy_divergence' in fm.columns else 50
+    esg_val = float(company_risk.get('total_esg_risk_score', 0))
+    controversy_val = float(company_risk.get('controversy_score', 0))
+    if divergence > fm['esg_controversy_divergence'].quantile(0.75) if 'esg_controversy_divergence' in fm.columns else 0:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'ESG risk is low ({esg_val:.1f}) but controversy is high ({controversy_val:.1f}) -- classic greenwashing divergence pattern',
+            'detail': f'ESG-Controversy Divergence = {divergence:.3f} (higher than {div_pct:.0f}% of companies). The company claims low ESG risk but has disproportionately high controversy.',
+            'tag': 'CRITICAL',
+        })
+    elif divergence > fm['esg_controversy_divergence'].median() if 'esg_controversy_divergence' in fm.columns else 0:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Moderate gap between ESG claims ({esg_val:.1f}) and controversy level ({controversy_val:.1f})',
+            'detail': f'Divergence = {divergence:.3f} (above median). Some inconsistency between stated ESG performance and actual controversies.',
+            'tag': 'WARNING',
+        })
+    else:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'ESG risk ({esg_val:.1f}) and controversy ({controversy_val:.1f}) are consistent',
+            'detail': f'Divergence = {divergence:.3f} (below median). No significant gap between claims and reality.',
+            'tag': 'GOOD',
+        })
+
+    # 2. Controversy-Risk Ratio
+    crr = float(company_fm.get('controversy_risk_ratio', 0)) if not pd.isna(company_fm.get('controversy_risk_ratio', 0)) else 0
+    crr_pct = float((fm[fm['controversy_risk_ratio'] <= crr].shape[0] / len(fm)) * 100) if 'controversy_risk_ratio' in fm.columns else 50
+    if crr > fm['controversy_risk_ratio'].quantile(0.75) if 'controversy_risk_ratio' in fm.columns else 0:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'Controversy-Risk Ratio ({crr:.3f}) is in the top {100 - crr_pct:.0f}% -- controversy disproportionately high',
+            'detail': f'This is the #1 predictive feature in the model (importance = 0.276). A high ratio means controversy levels are not reflected in the ESG risk score.',
+            'tag': 'CRITICAL',
+        })
+    elif crr > fm['controversy_risk_ratio'].median() if 'controversy_risk_ratio' in fm.columns else 0:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Controversy-Risk Ratio ({crr:.3f}) is above average',
+            'detail': f'Percentile: {crr_pct:.0f}th. Controversy is somewhat elevated relative to ESG risk score.',
+            'tag': 'WARNING',
+        })
+
+    # 3. Linguistic Greenwashing Signal
+    gw_signal = float(company_fm.get('greenwashing_signal_score', 0)) if not pd.isna(company_fm.get('greenwashing_signal_score', 0)) else 0
+    vague = int(company_fm.get('vague_language_count', 0)) if not pd.isna(company_fm.get('vague_language_count', 0)) else 0
+    concrete = int(company_fm.get('concrete_evidence_count', 0)) if not pd.isna(company_fm.get('concrete_evidence_count', 0)) else 0
+    hedge = int(company_fm.get('hedge_language_count', 0)) if not pd.isna(company_fm.get('hedge_language_count', 0)) else 0
+    superlative = int(company_fm.get('superlative_count', 0)) if not pd.isna(company_fm.get('superlative_count', 0)) else 0
+    future_lang = int(company_fm.get('future_language_count', 0)) if not pd.isna(company_fm.get('future_language_count', 0)) else 0
+
+    if gw_signal > fm['greenwashing_signal_score'].quantile(0.75) if 'greenwashing_signal_score' in fm.columns else 0.5:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'Corporate text shows strong greenwashing language patterns (GW signal = {gw_signal:.3f})',
+            'detail': f'Vague terms: {vague} | Hedge words: {hedge} | Superlatives: {superlative} | Future promises: {future_lang} | Concrete evidence: {concrete}. '
+                      + (f'Vague language ({vague}) significantly outweighs concrete evidence ({concrete}).' if vague > concrete else ''),
+            'tag': 'CRITICAL',
+        })
+    elif vague > concrete and vague > 2:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'More vague promises ({vague}) than concrete evidence ({concrete}) in corporate text',
+            'detail': f'GW signal = {gw_signal:.3f}. Hedge words: {hedge}, Superlatives: {superlative}, Future language: {future_lang}.',
+            'tag': 'WARNING',
+        })
+    elif concrete > vague and concrete > 1:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'Corporate text is substantive: {concrete} concrete evidence points vs {vague} vague terms',
+            'detail': f'GW signal = {gw_signal:.3f} (low). Language appears credible with measurable claims.',
+            'tag': 'GOOD',
+        })
+
+    # 4. Pillar Imbalance
+    imbalance = float(company_fm.get('pillar_imbalance_score', 0)) if not pd.isna(company_fm.get('pillar_imbalance_score', 0)) else 0
+    env_r = float(company_fm.get('env_risk_score', 0)) if not pd.isna(company_fm.get('env_risk_score', 0)) else 0
+    social_r = float(company_fm.get('social_risk_score', 0)) if not pd.isna(company_fm.get('social_risk_score', 0)) else 0
+    gov_r = float(company_fm.get('gov_risk_score', 0)) if not pd.isna(company_fm.get('gov_risk_score', 0)) else 0
+    avg_imbalance = float(fm['pillar_imbalance_score'].mean()) if 'pillar_imbalance_score' in fm.columns else 0
+
+    if imbalance > avg_imbalance * 1.5:
+        # Find which pillars are inconsistent
+        pillars = {'Environmental': env_r, 'Social': social_r, 'Governance': gov_r}
+        highest = max(pillars, key=pillars.get)
+        lowest = min(pillars, key=pillars.get)
+        gap = pillars[highest] - pillars[lowest]
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'{highest} risk ({pillars[highest]:.1f}) is inconsistent with {lowest} risk ({pillars[lowest]:.1f}) -- gap of {gap:.1f} points',
+            'detail': f'Pillar imbalance = {imbalance:.2f} (avg = {avg_imbalance:.2f}). Uneven ESG performance suggests selective reporting -- strong in one area but weak in another.',
+            'tag': 'WARNING',
+        })
+    else:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'ESG pillars are balanced (E={env_r:.1f}, S={social_r:.1f}, G={gov_r:.1f})',
+            'detail': f'Imbalance = {imbalance:.2f} (avg = {avg_imbalance:.2f}). No sign of selective reporting.',
+            'tag': 'GOOD',
+        })
+
+    # 5. Risk-Controversy Mismatch
+    mismatch = int(company_fm.get('risk_controversy_mismatch', 0)) if not pd.isna(company_fm.get('risk_controversy_mismatch', 0)) else 0
+    if mismatch:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'Risk-Controversy MISMATCH detected -- ESG risk level does not match controversy level',
+            'detail': 'The company\'s ESG risk category and controversy category are in different tiers. This is a key greenwashing indicator -- the company may be masking controversy with favorable ESG scores.',
+            'tag': 'CRITICAL',
+        })
+
+    # 6. Anomaly Detection
+    anomaly = float(company_fm.get('combined_anomaly_score', 0)) if not pd.isna(company_fm.get('combined_anomaly_score', 0)) else 0
+    anomaly_thresh = float(fm['combined_anomaly_score'].quantile(0.75)) if 'combined_anomaly_score' in fm.columns else 0
+    if anomaly > anomaly_thresh:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Statistical anomaly detected (score = {anomaly:.3f}, threshold = {anomaly_thresh:.3f})',
+            'detail': 'This company\'s ESG profile is statistically unusual compared to the population. Anomaly detection (IQR + MAD) flagged multiple features as outliers.',
+            'tag': 'WARNING',
+        })
+
+    # 7. Sentiment Analysis
+    sentiment = float(company_fm.get('text_polarity', 0)) if not pd.isna(company_fm.get('text_polarity', 0)) else 0
+    sentiment_thresh = float(fm['text_polarity'].quantile(0.85)) if 'text_polarity' in fm.columns else 0.5
+    if sentiment > sentiment_thresh:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Overly positive sentiment in corporate text (polarity = {sentiment:.3f}, top 15%)',
+            'detail': 'Excessively positive ESG language can indicate puffery -- making claims sound better than reality. Credible reports tend to have balanced or neutral tone.',
+            'tag': 'WARNING',
+        })
+
+    # 8. Sector Ranking
+    sector = company_risk.get('sector', None)
+    if sector:
+        sector_peers = df[df['sector'] == sector].sort_values('risk_score', ascending=False)
+        sector_rank = list(sector_peers['company_name']).index(selected) + 1 if selected in sector_peers['company_name'].values else 0
+        sector_total = len(sector_peers)
+        sector_avg = float(sector_peers['risk_score'].mean())
+
+        if sector_rank <= 3 and sector_total >= 5:
+            reasons.append({
+                'icon': '🚨', 'severity': 'critical',
+                'text': f'Ranked #{sector_rank} highest risk out of {sector_total} companies in {sector} sector',
+                'detail': f'Company risk = {risk_score:.1f}, Sector avg = {sector_avg:.1f} (delta = {risk_score - sector_avg:+.1f}). Among the worst performers in its peer group.',
+                'tag': 'CRITICAL',
+            })
+        elif risk_score > sector_avg + 10:
+            reasons.append({
+                'icon': '⚠️', 'severity': 'warning',
+                'text': f'Risk score ({risk_score:.1f}) is {risk_score - sector_avg:.1f} points above {sector} sector average ({sector_avg:.1f})',
+                'detail': f'Ranked #{sector_rank}/{sector_total} in sector. Above-average risk compared to industry peers.',
+                'tag': 'WARNING',
+            })
+        elif risk_score < sector_avg - 10:
+            reasons.append({
+                'icon': '✅', 'severity': 'good',
+                'text': f'Risk score ({risk_score:.1f}) is {sector_avg - risk_score:.1f} points below {sector} sector average ({sector_avg:.1f})',
+                'detail': f'Ranked #{sector_rank}/{sector_total} in sector. Better than most peers.',
+                'tag': 'GOOD',
+            })
+
+    # 9. Proxy Score
+    if not pred.empty:
+        pred_row = pred[pred['company_name'] == selected]
+        if not pred_row.empty:
+            proxy = int(pred_row.iloc[0].get('gw_proxy_score', 0))
+            if proxy >= 3:
+                reasons.append({
+                    'icon': '🚨', 'severity': 'critical',
+                    'text': f'Triggered {proxy} out of 5 greenwashing indicators in the ML model',
+                    'detail': 'Indicators: ESG-Controversy Divergence, GW Linguistic Score, Risk-Controversy Mismatch, Controversy-Risk Ratio, Combined Anomaly. Each triggers when above 75th percentile.',
+                    'tag': 'CRITICAL',
+                })
+            elif proxy == 2:
+                reasons.append({
+                    'icon': '⚠️', 'severity': 'warning',
+                    'text': f'Triggered {proxy} out of 5 greenwashing indicators (threshold for flagging)',
+                    'detail': 'The model flags companies with 2+ indicators. This company is at the boundary.',
+                    'tag': 'WARNING',
+                })
+
+    # --- Render the Reason Engine ---
+    critical_count = sum(1 for r in reasons if r['severity'] == 'critical')
+    warning_count = sum(1 for r in reasons if r['severity'] == 'warning')
+    good_count = sum(1 for r in reasons if r['severity'] == 'good')
+
+    if risk_score >= 60:
+        title_class = 'reason-title-high'
+        title_icon = '🚨'
+        title_text = f'{selected} -- HIGH RISK'
+    elif risk_score >= 40:
+        title_class = 'reason-title-moderate'
+        title_icon = '⚠️'
+        title_text = f'{selected} -- MODERATE RISK'
+    else:
+        title_class = 'reason-title-low'
+        title_icon = '✅'
+        title_text = f'{selected} -- LOW RISK'
+
+    # Build HTML
+    reasons_html = f'<div class="reason-box">'
+    reasons_html += f'<div class="reason-title {title_class}">{title_icon} {title_text}</div>'
+    reasons_html += f'<div style="color:#888;font-size:12px;margin-bottom:12px;">{critical_count} critical | {warning_count} warnings | {good_count} positive signals</div>'
+
+    # Sort: critical first, then warning, then good
+    severity_order = {'critical': 0, 'warning': 1, 'good': 2}
+    reasons.sort(key=lambda x: severity_order.get(x['severity'], 3))
+
+    for r in reasons:
+        tag_class = 'tag-critical' if r['severity'] == 'critical' else 'tag-warning' if r['severity'] == 'warning' else 'tag-good'
+        reasons_html += f'<div class="reason-item">'
+        reasons_html += f'<span class="reason-icon">{r["icon"]}</span>{r["text"]}'
+        reasons_html += f'<span class="reason-tag {tag_class}">{r["tag"]}</span>'
+        reasons_html += f'</div>'
+        reasons_html += f'<div class="reason-detail">{r["detail"]}</div>'
+
+    reasons_html += '</div>'
+    st.markdown(reasons_html, unsafe_allow_html=True)
+
     st.markdown("---")
 
     # --- Section 2: Risk Score Breakdown ---
