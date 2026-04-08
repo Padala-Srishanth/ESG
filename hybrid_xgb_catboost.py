@@ -240,9 +240,39 @@ def main():
     print(f'  CatBoost weight: {1 - alpha:.3f}')
     print(f'  Validation log-loss: {val_loss:.4f}')
 
-    # === STEP 6: Evaluate on test set ===
-    print('\n[6/7] Evaluating on test set...')
-    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+    # === STEP 6: Evaluate on TRAIN, VALIDATION, and TEST sets ===
+    print('\n[6/7] Evaluating on Train / Validation / Test sets...')
+    from sklearn.metrics import (
+        accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
+        log_loss, confusion_matrix, matthews_corrcoef, balanced_accuracy_score
+    )
+
+    def metrics(name, split, y_true, y_pred, y_prob):
+        cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+        tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+        return {
+            'model': name,
+            'split': split,
+            'n_samples': int(len(y_true)),
+            'accuracy': float(accuracy_score(y_true, y_pred)),
+            'balanced_accuracy': float(balanced_accuracy_score(y_true, y_pred)),
+            'precision': float(precision_score(y_true, y_pred, zero_division=0)),
+            'recall': float(recall_score(y_true, y_pred, zero_division=0)),
+            'f1': float(f1_score(y_true, y_pred, zero_division=0)),
+            'roc_auc': float(roc_auc_score(y_true, y_prob)),
+            'log_loss': float(log_loss(y_true, np.clip(y_prob, 1e-7, 1 - 1e-7))),
+            'mcc': float(matthews_corrcoef(y_true, y_pred)),
+            'tn': int(tn), 'fp': int(fp), 'fn': int(fn), 'tp': int(tp),
+        }
+
+    # Get probabilities for all three splits
+    p_xgb_train = xgb_model.predict_proba(X_train_s)[:, 1]
+    p_cat_train = cat_model.predict_proba(X_train_s)[:, 1]
+    p_hybrid_train = alpha * p_xgb_train + (1 - alpha) * p_cat_train
+
+    p_xgb_val = xgb_model.predict_proba(X_val_s)[:, 1]
+    p_cat_val = cat_model.predict_proba(X_val_s)[:, 1]
+    p_hybrid_val = alpha * p_xgb_val + (1 - alpha) * p_cat_val
 
     p_xgb_test = xgb_model.predict_proba(X_test_s)[:, 1]
     p_cat_test = cat_model.predict_proba(X_test_s)[:, 1]
@@ -252,26 +282,44 @@ def main():
     pred_cat = (p_cat_test >= 0.5).astype(int)
     pred_hybrid = (p_hybrid_test >= 0.5).astype(int)
 
-    def metrics(name, y_true, y_pred, y_prob):
-        return {
-            'model': name,
-            'accuracy': float(accuracy_score(y_true, y_pred)),
-            'precision': float(precision_score(y_true, y_pred, zero_division=0)),
-            'recall': float(recall_score(y_true, y_pred, zero_division=0)),
-            'f1': float(f1_score(y_true, y_pred, zero_division=0)),
-            'roc_auc': float(roc_auc_score(y_true, y_prob)),
-        }
+    # Compute metrics for all (model, split) combinations
+    all_results = []
+    for split, (yt, p_x, p_c, p_h) in [
+        ('train', (y_train, p_xgb_train, p_cat_train, p_hybrid_train)),
+        ('val',   (y_val,   p_xgb_val,   p_cat_val,   p_hybrid_val)),
+        ('test',  (y_test,  p_xgb_test,  p_cat_test,  p_hybrid_test)),
+    ]:
+        all_results.append(metrics('XGBoost', split, yt, (p_x >= 0.5).astype(int), p_x))
+        all_results.append(metrics('CatBoost', split, yt, (p_c >= 0.5).astype(int), p_c))
+        all_results.append(metrics('Hybrid (XGB+Cat)', split, yt, (p_h >= 0.5).astype(int), p_h))
 
-    m_xgb = metrics('XGBoost', y_test, pred_xgb, p_xgb_test)
-    m_cat = metrics('CatBoost', y_test, pred_cat, p_cat_test)
-    m_hybrid = metrics('Hybrid (XGB+Cat)', y_test, pred_hybrid, p_hybrid_test)
+    # Backward-compat: keep test-only metrics for legacy code paths
+    m_xgb = next(r for r in all_results if r['model'] == 'XGBoost' and r['split'] == 'test')
+    m_cat = next(r for r in all_results if r['model'] == 'CatBoost' and r['split'] == 'test')
+    m_hybrid = next(r for r in all_results if r['model'] == 'Hybrid (XGB+Cat)' and r['split'] == 'test')
 
-    print('\n  Test Set Performance:')
-    print(f'  {"Model":<22s}  {"Acc":>8s}  {"Prec":>8s}  {"Recall":>8s}  {"F1":>8s}  {"AUC":>8s}')
-    print('  ' + '-' * 70)
-    for m in [m_xgb, m_cat, m_hybrid]:
-        print(f'  {m["model"]:<22s}  {m["accuracy"]:>8.4f}  {m["precision"]:>8.4f}  '
-              f'{m["recall"]:>8.4f}  {m["f1"]:>8.4f}  {m["roc_auc"]:>8.4f}')
+    # Print Train / Val / Test tables
+    for split_name in ['train', 'val', 'test']:
+        title = {'train': 'TRAIN SET', 'val': 'VALIDATION SET', 'test': 'TEST SET'}[split_name]
+        rows = [r for r in all_results if r['split'] == split_name]
+        print(f'\n  ===== {title} (n = {rows[0]["n_samples"]}) =====')
+        print(f'  {"Model":<22s}  {"Acc":>8s}  {"BalAcc":>8s}  {"Prec":>8s}  {"Recall":>8s}  '
+              f'{"F1":>8s}  {"AUC":>8s}  {"LogLoss":>8s}  {"MCC":>8s}')
+        print('  ' + '-' * 100)
+        for r in rows:
+            print(f'  {r["model"]:<22s}  {r["accuracy"]:>8.4f}  {r["balanced_accuracy"]:>8.4f}  '
+                  f'{r["precision"]:>8.4f}  {r["recall"]:>8.4f}  {r["f1"]:>8.4f}  '
+                  f'{r["roc_auc"]:>8.4f}  {r["log_loss"]:>8.4f}  {r["mcc"]:>8.4f}')
+
+    # === Save tabular results CSV (submission-ready) ===
+    results_df = pd.DataFrame(all_results)
+    # Order columns logically
+    col_order = ['model', 'split', 'n_samples', 'accuracy', 'balanced_accuracy',
+                 'precision', 'recall', 'f1', 'roc_auc', 'log_loss', 'mcc',
+                 'tn', 'fp', 'fn', 'tp']
+    results_df = results_df[col_order]
+    results_df.to_csv('data/processed/hybrid_train_test_results.csv', index=False)
+    print('\n  Saved data/processed/hybrid_train_test_results.csv')
 
     # === STEP 7: Monte Carlo uncertainty ===
     print('\n[7/7] Monte Carlo uncertainty estimation...')
