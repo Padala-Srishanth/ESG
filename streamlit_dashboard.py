@@ -114,13 +114,27 @@ def load_data():
     else:
         data['predictions'] = pd.DataFrame()
 
-    # SHAP explanations
+    # SHAP explanations (legacy text file - kept for backward compatibility)
     shap_path = os.path.join(PROCESSED_DIR, "shap_explanations.txt")
     if os.path.exists(shap_path):
         with open(shap_path, 'r', encoding='utf-8') as f:
             data['shap_explanations'] = f.read()
     else:
-        data['shap_explanations'] = "SHAP explanations not yet generated. Run model_pipeline.py first."
+        data['shap_explanations'] = "SHAP explanations not yet generated. Run regenerate_shap.py."
+
+    # NEW: REAL SHAP feature importance (regenerated on current 205-feature set)
+    shap_fi_path = os.path.join(PROCESSED_DIR, "shap_feature_importance.csv")
+    if os.path.exists(shap_fi_path):
+        data['shap_feature_importance'] = pd.read_csv(shap_fi_path)
+    else:
+        data['shap_feature_importance'] = pd.DataFrame()
+
+    # NEW: Per-company SHAP values for ALL 480 companies
+    shap_all_path = os.path.join(PROCESSED_DIR, "shap_values_all.csv")
+    if os.path.exists(shap_all_path):
+        data['shap_values_all'] = pd.read_csv(shap_all_path)
+    else:
+        data['shap_values_all'] = pd.DataFrame()
 
     return data
 
@@ -4971,56 +4985,305 @@ def page_timeseries_tracking(data):
 # ============================================================================
 
 def page_shap_explanations(data):
-    """SHAP explanations — interactive charts + text explanations."""
+    """SHAP explanations -- REAL SHAP values from regenerated model on full 205-feature set.
+
+    Displays:
+        1. Global SHAP feature importance (mean |SHAP value|)
+        2. New ESG features (Categories 7-10) ranking and impact
+        3. Per-company SHAP waterfall (force plot equivalent)
+        4. Feature distribution explorer (linked to SHAP-ranked features)
+        5. SHAP-based correlation heatmap
+    """
 
     st.title("SHAP Explanations -- Why Companies Are Flagged")
-    st.markdown("SHAP (SHapley Additive exPlanations) shows which features pushed each "
-                "company's prediction toward or away from greenwashing.")
+    st.markdown(
+        "**SHAP (SHapley Additive exPlanations)** shows the marginal contribution of each "
+        "feature to a company's greenwashing prediction. Unlike basic feature importance, "
+        "SHAP values are computed per-company and explain individual predictions."
+    )
 
-    fi = data['feature_importance']
+    # Load REAL SHAP data
+    shap_fi = data.get('shap_feature_importance', pd.DataFrame())
+    shap_all = data.get('shap_values_all', pd.DataFrame())
     fm = data['feature_matrix']
 
-    # --- Interactive SHAP-like waterfall chart (simulated from feature importance) ---
-    if not fi.empty:
-        st.subheader("Global Feature Impact (Top 20)")
-
-        top20 = fi.head(20).copy()
-        top20 = top20.sort_values('importance', ascending=True)
-
-        fig = go.Figure(go.Bar(
-            x=top20['importance'],
-            y=top20['feature'],
-            orientation='h',
-            marker=dict(
-                color=top20['importance'],
-                colorscale='Reds',
-                showscale=True,
-                colorbar=dict(title='Importance'),
-            ),
-            hovertemplate='<b>%{y}</b><br>Importance: %{x:.6f}<extra></extra>',
-        ))
-        fig.update_layout(
-            title='Feature Importance (Gradient Boosting)',
-            xaxis_title='Importance', yaxis_title='Feature',
-            height=600,
+    # Fallback warning if SHAP not regenerated
+    if shap_fi.empty or shap_all.empty:
+        st.error(
+            "**SHAP data not found.** Please run `python regenerate_shap.py` from the project root "
+            "to generate SHAP values on the current feature matrix (with all 91 NLP features)."
         )
+        st.info("This page expects two files:\n"
+                "- `data/processed/shap_feature_importance.csv`\n"
+                "- `data/processed/shap_values_all.csv`")
+        return
+
+    # Define which features are NEW (Categories 7-10)
+    new_feature_set = {
+        'paris_agreement_alignment', 'eu_taxonomy_alignment', 'sec_climate_alignment',
+        'tcfd_alignment', 'sdg_alignment', 'gri_standards_alignment',
+        'regulatory_breadth_index', 'total_policy_density', 'policy_specificity_score',
+        'policy_esg_gap', 'framework_consistency_score', 'regulatory_readiness_score',
+        'promotional_intent_density', 'defensive_intent_density', 'factual_intent_density',
+        'strategic_intent_density', 'narrative_credibility_index', 'promotional_dominance_score',
+        'intent_diversity_score', 'defensive_to_factual_ratio', 'sentiment_intent_divergence',
+        'news_greenwashing_signal', 'past_achievement_density', 'present_action_density',
+        'specific_future_density', 'vague_future_density', 'temporal_balance_score',
+        'commitment_credibility_score', 'temporal_specificity_ratio', 'progress_to_promise_ratio',
+        'year_mention_density', 'temporal_greenwashing_signal',
+        'policy_sentiment_interaction', 'readability_greenwashing_interaction',
+        'temporal_policy_interaction', 'vocabulary_intent_interaction',
+        'evidence_readability_interaction', 'claim_credibility_ratio',
+        'multi_signal_greenwashing_score', 'esg_linguistic_credibility_index',
+        'credibility_confidence_interval', 'policy_temporal_alignment',
+        'narrative_consistency_score', 'aggregate_esg_nlp_score',
+    }
+
+    # Status badge
+    n_features = len(shap_fi)
+    n_new_in_top50 = sum(1 for f in shap_fi.head(50)['feature'].tolist() if f in new_feature_set)
+    n_new_total = sum(1 for f in shap_fi['feature'].tolist() if f in new_feature_set)
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    col_a.metric("Features Analyzed", f"{n_features}")
+    col_b.metric("New ESG Features", f"{n_new_total}", delta=f"+{n_new_total} vs original")
+    col_c.metric("New Features in Top 50", f"{n_new_in_top50}/50")
+    col_d.metric("Companies Explained", f"{len(shap_all)}")
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 1: GLOBAL SHAP FEATURE IMPORTANCE
+    # ====================================================================
+    st.subheader("1. Global SHAP Feature Importance (Top 25)")
+    st.markdown(
+        "Mean absolute SHAP value across all 480 companies. Higher = more impact on predictions. "
+        "**Green = NEW feature from Categories 7-10 (Government Policy, News Intent, Temporal, Aggregate).**"
+    )
+
+    top25 = shap_fi.head(25).copy()
+    top25['is_new'] = top25['feature'].isin(new_feature_set)
+    top25['color'] = top25['is_new'].map({True: '#27ae60', False: '#e74c3c'})
+    top25 = top25.sort_values('shap_importance', ascending=True)
+
+    fig = go.Figure(go.Bar(
+        x=top25['shap_importance'],
+        y=top25['feature'],
+        orientation='h',
+        marker=dict(color=top25['color'].tolist()),
+        text=top25['shap_importance'].round(4),
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>SHAP Importance: %{x:.6f}<br>%{customdata}<extra></extra>',
+        customdata=['NEW Cat 7-10' if x else 'Original' for x in top25['is_new']],
+    ))
+    fig.update_layout(
+        title='Mean |SHAP value| -- impact on greenwashing prediction',
+        xaxis_title='Mean |SHAP|',
+        yaxis_title='Feature',
+        height=700,
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ====================================================================
+    # SECTION 2: NEW FEATURES RANKING
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("2. New ESG Features (Categories 7-10) -- SHAP Impact")
+    st.markdown(
+        "How the 44 new features (Government Policy, News Intent, Temporal, Aggregate) "
+        "contribute to greenwashing detection."
+    )
+
+    new_features_df = shap_fi[shap_fi['feature'].isin(new_feature_set)].copy()
+    new_features_df = new_features_df.reset_index(drop=False).rename(columns={'index': 'global_rank'})
+    new_features_df['global_rank'] = new_features_df['global_rank'] + 1
+
+    if not new_features_df.empty:
+        # Categorize each new feature
+        def categorize(feat):
+            policy = {'paris_agreement_alignment', 'eu_taxonomy_alignment', 'sec_climate_alignment',
+                      'tcfd_alignment', 'sdg_alignment', 'gri_standards_alignment',
+                      'regulatory_breadth_index', 'total_policy_density', 'policy_specificity_score',
+                      'policy_esg_gap', 'framework_consistency_score', 'regulatory_readiness_score'}
+            news = {'promotional_intent_density', 'defensive_intent_density', 'factual_intent_density',
+                    'strategic_intent_density', 'narrative_credibility_index', 'promotional_dominance_score',
+                    'intent_diversity_score', 'defensive_to_factual_ratio', 'sentiment_intent_divergence',
+                    'news_greenwashing_signal'}
+            temporal = {'past_achievement_density', 'present_action_density', 'specific_future_density',
+                        'vague_future_density', 'temporal_balance_score', 'commitment_credibility_score',
+                        'temporal_specificity_ratio', 'progress_to_promise_ratio', 'year_mention_density',
+                        'temporal_greenwashing_signal'}
+            if feat in policy:
+                return 'Cat 7: Government Policy'
+            elif feat in news:
+                return 'Cat 8: News Intent'
+            elif feat in temporal:
+                return 'Cat 9: Temporal'
+            else:
+                return 'Cat 10: Aggregate'
+
+        new_features_df['category'] = new_features_df['feature'].apply(categorize)
+        new_features_df = new_features_df.sort_values('shap_importance', ascending=False)
+
+        fig = px.bar(
+            new_features_df.head(20),
+            x='shap_importance',
+            y='feature',
+            color='category',
+            orientation='h',
+            title='Top 20 New ESG Features by SHAP Impact',
+            labels={'shap_importance': 'Mean |SHAP|', 'feature': 'Feature'},
+            color_discrete_map={
+                'Cat 7: Government Policy': '#3498db',
+                'Cat 8: News Intent': '#9b59b6',
+                'Cat 9: Temporal': '#f39c12',
+                'Cat 10: Aggregate': '#27ae60',
+            },
+            text='global_rank',
+        )
+        fig.update_traces(texttemplate='Rank #%{text}', textposition='outside')
+        fig.update_layout(height=600, yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- Interactive feature distribution explorer ---
-    if not fm.empty:
-        st.subheader("Feature Distribution Explorer")
-        st.markdown("Select a feature to see how it distributes across all companies.")
+        # Category summary
+        cat_summary = new_features_df.groupby('category').agg(
+            num_features=('feature', 'count'),
+            mean_shap=('shap_importance', 'mean'),
+            max_shap=('shap_importance', 'max'),
+            best_rank=('global_rank', 'min'),
+        ).reset_index().sort_values('mean_shap', ascending=False)
+        st.markdown("**Category Summary:**")
+        st.dataframe(cat_summary, use_container_width=True, hide_index=True)
+    else:
+        st.warning("No new features found in SHAP importance file. Run `python regenerate_shap.py`.")
 
+    # ====================================================================
+    # SECTION 3: PER-COMPANY SHAP WATERFALL
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("3. Per-Company SHAP Waterfall (Force Plot)")
+    st.markdown(
+        "Shows which features pushed a SPECIFIC company's prediction up (toward greenwashing) or "
+        "down (toward genuine ESG). This is the core of SHAP -- it explains individual predictions."
+    )
+
+    if not shap_all.empty and 'company_name' in shap_all.columns:
+        company_list = sorted(shap_all['company_name'].dropna().unique().tolist())
+
+        # Default to a high-risk company if available
+        default_idx = 0
+        if not data.get('risk_scores', pd.DataFrame()).empty:
+            risk_df = data['risk_scores']
+            high_risk = risk_df.nlargest(1, 'risk_score')['company_name'].tolist()
+            if high_risk and high_risk[0] in company_list:
+                default_idx = company_list.index(high_risk[0])
+
+        selected = st.selectbox(
+            "Select a company to explain",
+            company_list,
+            index=default_idx,
+            key='shap_company_selector',
+        )
+
+        if selected:
+            company_shap = shap_all[shap_all['company_name'] == selected].iloc[0]
+            shap_features = [c for c in shap_all.columns if c != 'company_name']
+            shap_vec = company_shap[shap_features].astype(float)
+
+            # Get top 15 features by absolute SHAP for this company
+            abs_shap = shap_vec.abs().sort_values(ascending=False)
+            top_features = abs_shap.head(15).index.tolist()
+
+            waterfall_data = pd.DataFrame({
+                'feature': top_features,
+                'shap_value': [shap_vec[f] for f in top_features],
+            })
+            waterfall_data['direction'] = waterfall_data['shap_value'].apply(
+                lambda x: 'Pushes toward GREENWASHING' if x > 0 else 'Pushes toward GENUINE'
+            )
+            waterfall_data['abs_value'] = waterfall_data['shap_value'].abs()
+            waterfall_data['is_new'] = waterfall_data['feature'].isin(new_feature_set)
+            waterfall_data = waterfall_data.sort_values('shap_value', ascending=True)
+
+            fig = go.Figure(go.Bar(
+                x=waterfall_data['shap_value'],
+                y=waterfall_data['feature'],
+                orientation='h',
+                marker=dict(
+                    color=waterfall_data['shap_value'],
+                    colorscale='RdBu_r',
+                    cmid=0,
+                    showscale=True,
+                    colorbar=dict(title='SHAP value'),
+                ),
+                text=[f"{v:+.4f}" for v in waterfall_data['shap_value']],
+                textposition='outside',
+                hovertemplate='<b>%{y}</b><br>SHAP: %{x:+.4f}<br>%{customdata}<extra></extra>',
+                customdata=waterfall_data['direction'],
+            ))
+            fig.add_vline(x=0, line_dash="dash", line_color="black", line_width=1)
+            fig.update_layout(
+                title=f'Top 15 SHAP Contributions for {selected}',
+                xaxis_title='SHAP value (red = greenwashing, blue = genuine)',
+                yaxis_title='Feature',
+                height=600,
+                showlegend=False,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Verbal interpretation
+            pos_count = (waterfall_data['shap_value'] > 0).sum()
+            neg_count = (waterfall_data['shap_value'] < 0).sum()
+            net_shap = float(shap_vec.sum())
+            total_pos = float(shap_vec[shap_vec > 0].sum())
+            total_neg = float(shap_vec[shap_vec < 0].sum())
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Net SHAP (sum)", f"{net_shap:+.3f}",
+                        help="Sum of all SHAP values. Positive = model leans greenwashing.")
+            col2.metric("Pushing toward GW", f"{total_pos:+.3f}",
+                        help="Total of positive SHAP contributions.")
+            col3.metric("Pushing toward GENUINE", f"{total_neg:+.3f}",
+                        help="Total of negative SHAP contributions.")
+
+            new_in_top = waterfall_data[waterfall_data['is_new']]['feature'].tolist()
+            if new_in_top:
+                st.info(
+                    f"**{len(new_in_top)} of the top 15 contributing features are NEW (Categories 7-10):**  "
+                    + ", ".join(new_in_top)
+                )
+            else:
+                st.warning("None of the top contributing features are from the new categories. "
+                           "This company is being flagged primarily by original features.")
+
+    # ====================================================================
+    # SECTION 4: FEATURE DISTRIBUTION EXPLORER (linked to SHAP)
+    # ====================================================================
+    st.markdown("---")
+    st.subheader("4. SHAP-Ranked Feature Distribution")
+    st.markdown("Explore the distribution of features ranked by their SHAP impact.")
+
+    if not fm.empty:
         numeric_cols = fm.select_dtypes(include=[np.number]).columns.tolist()
-        important_features = fi['feature'].head(30).tolist() if not fi.empty else numeric_cols[:20]
-        available = [f for f in important_features if f in numeric_cols]
+        important = shap_fi.head(40)['feature'].tolist()
+        available = [f for f in important if f in numeric_cols]
 
         if available:
-            selected_feature = st.selectbox("Choose a feature to explore", available)
-
+            selected_feature = st.selectbox(
+                "Choose a feature to explore (sorted by SHAP impact)",
+                available,
+                key='shap_feature_explorer',
+            )
             if selected_feature:
-                col1, col2 = st.columns(2)
+                shap_rank_idx = shap_fi[shap_fi['feature'] == selected_feature].index
+                shap_rank = (int(shap_rank_idx[0]) + 1) if len(shap_rank_idx) > 0 else None
+                shap_val = float(shap_fi[shap_fi['feature'] == selected_feature]['shap_importance'].iloc[0]) if shap_rank else 0
+                is_new = selected_feature in new_feature_set
+                badge = " *(NEW Cat 7-10)*" if is_new else ""
+                st.markdown(f"**SHAP Rank: #{shap_rank}** | Mean |SHAP|: {shap_val:.6f}{badge}")
 
+                col1, col2 = st.columns(2)
                 with col1:
                     fig = px.histogram(
                         fm, x=selected_feature, nbins=30,
@@ -5040,30 +5303,32 @@ def page_shap_explanations(data):
                         fig.update_layout(showlegend=False, xaxis_tickangle=-45)
                         st.plotly_chart(fig, use_container_width=True)
 
-    # --- SHAP text explanations ---
+    # ====================================================================
+    # SECTION 5: SHAP CORRELATION HEATMAP (TOP FEATURES)
+    # ====================================================================
     st.markdown("---")
-    st.subheader("Company-Level SHAP Explanations")
-    st.markdown("Detailed text explanations for the top flagged companies:")
+    st.subheader("5. Top SHAP Features Correlation")
 
-    with st.expander("View Full SHAP Explanations (click to expand)", expanded=False):
-        st.code(data['shap_explanations'], language=None)
-
-    # --- Feature correlation heatmap (top features) ---
-    if not fm.empty and not fi.empty:
-        st.subheader("Top Feature Correlations")
-        top_features = fi['feature'].head(10).tolist()
+    if not fm.empty and not shap_fi.empty:
+        top_features = shap_fi.head(10)['feature'].tolist()
         top_features = [f for f in top_features if f in fm.columns]
 
         if len(top_features) >= 2:
             corr = fm[top_features].corr()
             fig = px.imshow(
                 corr, text_auto='.2f',
-                title='Correlation Heatmap (Top 10 Features)',
+                title='Correlation Heatmap (Top 10 SHAP Features)',
                 color_continuous_scale='RdBu_r',
                 aspect='auto',
             )
             fig.update_layout(height=500)
             st.plotly_chart(fig, use_container_width=True)
+
+    # ====================================================================
+    # SECTION 6: LEGACY TEXT EXPLANATIONS (collapsed by default)
+    # ====================================================================
+    with st.expander("Legacy SHAP text explanations (from earlier model)", expanded=False):
+        st.code(data.get('shap_explanations', 'Not available'), language=None)
 
 
 # ============================================================================
