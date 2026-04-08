@@ -136,6 +136,39 @@ def load_data():
     else:
         data['shap_values_all'] = pd.DataFrame()
 
+    # NEW: Hybrid XGBoost-CatBoost model outputs
+    hybrid_pred_path = os.path.join(PROCESSED_DIR, "hybrid_predictions.csv")
+    if os.path.exists(hybrid_pred_path):
+        data['hybrid_predictions'] = pd.read_csv(hybrid_pred_path)
+    else:
+        data['hybrid_predictions'] = pd.DataFrame()
+
+    hybrid_metrics_path = os.path.join(PROCESSED_DIR, "hybrid_model_metrics.json")
+    if os.path.exists(hybrid_metrics_path):
+        import json as _json
+        with open(hybrid_metrics_path, 'r') as _f:
+            data['hybrid_metrics'] = _json.load(_f)
+    else:
+        data['hybrid_metrics'] = {}
+
+    hybrid_fi_path = os.path.join(PROCESSED_DIR, "hybrid_feature_importance.csv")
+    if os.path.exists(hybrid_fi_path):
+        data['hybrid_feature_importance'] = pd.read_csv(hybrid_fi_path)
+    else:
+        data['hybrid_feature_importance'] = pd.DataFrame()
+
+    hybrid_shap_path = os.path.join(PROCESSED_DIR, "hybrid_shap_feature_importance.csv")
+    if os.path.exists(hybrid_shap_path):
+        data['hybrid_shap_importance'] = pd.read_csv(hybrid_shap_path)
+    else:
+        data['hybrid_shap_importance'] = pd.DataFrame()
+
+    hybrid_shap_all_path = os.path.join(PROCESSED_DIR, "hybrid_shap_values_all.csv")
+    if os.path.exists(hybrid_shap_all_path):
+        data['hybrid_shap_values_all'] = pd.read_csv(hybrid_shap_all_path)
+    else:
+        data['hybrid_shap_values_all'] = pd.DataFrame()
+
     return data
 
 
@@ -165,6 +198,7 @@ def render_sidebar(data):
             "Company Comparison",
             "Time-Series Risk Tracking",
             "SHAP Explanations",
+            "Hybrid XGBoost-CatBoost Model",
         ]
     )
 
@@ -5332,6 +5366,424 @@ def page_shap_explanations(data):
 
 
 # ============================================================================
+# PAGE 13: HYBRID XGBOOST-CATBOOST MODEL
+# ============================================================================
+
+def page_hybrid_model(data):
+    """Hybrid XGBoost-CatBoost model with Monte Carlo uncertainty estimation.
+
+    Inspired by:
+        Optimized hybrid XGBoost-CatBoost model for enhanced prediction
+        using Monte Carlo simulations (ScienceDirect)
+
+    Adapted for ESG greenwashing detection.
+    """
+
+    st.title("Hybrid XGBoost-CatBoost Model with Monte Carlo Uncertainty")
+    st.markdown(
+        "**Inspired by recent research** on hybrid gradient-boosting ensembles. This model "
+        "blends XGBoost (great at numerical interactions) with CatBoost (robust to overfitting "
+        "and categorical features), then runs Monte Carlo simulation to quantify prediction "
+        "uncertainty per company."
+    )
+
+    hybrid_pred = data.get('hybrid_predictions', pd.DataFrame())
+    hybrid_metrics = data.get('hybrid_metrics', {})
+    hybrid_fi = data.get('hybrid_feature_importance', pd.DataFrame())
+    hybrid_shap_fi = data.get('hybrid_shap_importance', pd.DataFrame())
+    hybrid_shap_all = data.get('hybrid_shap_values_all', pd.DataFrame())
+
+    if hybrid_pred.empty or not hybrid_metrics:
+        st.error(
+            "**Hybrid model outputs not found.** Please run `python hybrid_xgb_catboost.py` "
+            "from the project root to train the hybrid model."
+        )
+        st.info("Required files:\n"
+                "- `data/processed/hybrid_predictions.csv`\n"
+                "- `data/processed/hybrid_model_metrics.json`\n"
+                "- `data/processed/hybrid_feature_importance.csv`")
+        return
+
+    # ====================================================================
+    # SECTION 1: MODEL CONFIGURATION & METRICS
+    # ====================================================================
+    st.subheader("1. Model Configuration")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Features Used", f"{hybrid_metrics.get('n_features', 0)}")
+    col2.metric("Training Samples", f"{hybrid_metrics.get('train_size', 0)}")
+    col3.metric("Validation Samples", f"{hybrid_metrics.get('val_size', 0)}")
+    col4.metric("Test Samples", f"{hybrid_metrics.get('test_size', 0)}")
+
+    col_a, col_b, col_c = st.columns(3)
+    alpha_xgb = hybrid_metrics.get('optimal_alpha_xgboost', 0.5)
+    alpha_cat = hybrid_metrics.get('optimal_alpha_catboost', 0.5)
+    val_loss = hybrid_metrics.get('validation_logloss', 0)
+    col_a.metric("XGBoost Weight (α)", f"{alpha_xgb:.3f}",
+                 help="Optimal weight on XGBoost found by minimizing log-loss")
+    col_b.metric("CatBoost Weight (1−α)", f"{alpha_cat:.3f}",
+                 help="Optimal weight on CatBoost")
+    col_c.metric("Validation Log-Loss", f"{val_loss:.4f}",
+                 help="Lower is better. Achieved by optimal blend.")
+
+    if alpha_xgb < 0.1:
+        st.info(
+            f"**Finding:** The optimization picked α = {alpha_xgb:.3f}, meaning **CatBoost decisively wins** "
+            f"on the validation set for this dataset. The hybrid effectively becomes pure CatBoost. "
+            f"This is itself a finding — for ESG features, CatBoost's L2 regularization handles "
+            f"sparse policy/temporal features better than XGBoost."
+        )
+    elif alpha_xgb > 0.9:
+        st.info(
+            f"**Finding:** Optimization picked α = {alpha_xgb:.3f}, meaning XGBoost dominates. "
+            f"The hybrid is effectively pure XGBoost."
+        )
+    else:
+        st.success(
+            f"**True hybrid:** Both models contribute meaningfully. "
+            f"XGBoost: {alpha_xgb:.0%}, CatBoost: {alpha_cat:.0%}."
+        )
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 2: MODEL COMPARISON
+    # ====================================================================
+    st.subheader("2. Model Performance Comparison")
+
+    metrics_data = hybrid_metrics.get('metrics', {})
+    if metrics_data:
+        rows = []
+        for key, m in metrics_data.items():
+            rows.append({
+                'Model': m['model'],
+                'Accuracy': round(m['accuracy'], 4),
+                'Precision': round(m['precision'], 4),
+                'Recall': round(m['recall'], 4),
+                'F1 Score': round(m['f1'], 4),
+                'ROC-AUC': round(m['roc_auc'], 4),
+            })
+        comp_df = pd.DataFrame(rows)
+        st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+        # Bar chart comparison
+        long_df = comp_df.melt(
+            id_vars='Model',
+            value_vars=['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC-AUC'],
+            var_name='Metric',
+            value_name='Score',
+        )
+        fig = px.bar(
+            long_df, x='Metric', y='Score', color='Model', barmode='group',
+            title='Model Performance Comparison',
+            color_discrete_sequence=['#3498db', '#9b59b6', '#27ae60'],
+            text='Score',
+        )
+        fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+        fig.update_layout(yaxis_range=[0, 1.05], height=450)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 3: MONTE CARLO UNCERTAINTY ANALYSIS
+    # ====================================================================
+    st.subheader("3. Monte Carlo Uncertainty Analysis")
+    st.markdown(
+        f"**{hybrid_metrics.get('monte_carlo_runs', 20)} bootstrap runs** with "
+        f"{hybrid_metrics.get('monte_carlo_sample_frac', 0.8) * 100:.0f}% sampling. "
+        "Each company's prediction uncertainty (standard deviation) reveals how stable the "
+        "model's decision is. High uncertainty means the prediction would flip easily with "
+        "different training data — critical for risk-based decisions."
+    )
+
+    # Distribution of uncertainty
+    col_l, col_r = st.columns(2)
+    with col_l:
+        fig = px.histogram(
+            hybrid_pred, x='uncertainty', nbins=40,
+            title='Prediction Uncertainty Distribution',
+            labels={'uncertainty': 'Standard deviation (MC)'},
+            color_discrete_sequence=['#e67e22'],
+            marginal='box',
+        )
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_r:
+        # Scatter: prob vs uncertainty
+        fig = px.scatter(
+            hybrid_pred, x='hybrid_prob', y='uncertainty',
+            color='predicted_class',
+            title='Prediction vs Uncertainty (per company)',
+            labels={'hybrid_prob': 'Hybrid probability', 'uncertainty': 'MC Std (uncertainty)'},
+            color_continuous_scale='RdBu_r',
+            hover_data=['company_name'],
+        )
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # High-uncertainty companies table
+    st.markdown("**Top 15 Highest-Uncertainty Companies (decision boundary cases):**")
+    st.markdown("These companies sit very close to the GW/genuine boundary — small "
+                "changes in training data flip the prediction. Investigate these manually.")
+
+    high_unc = hybrid_pred.nlargest(15, 'uncertainty')[
+        ['company_name', 'sector', 'hybrid_prob', 'hybrid_mc_mean',
+         'uncertainty', 'hybrid_ci_low', 'hybrid_ci_high', 'predicted_class']
+    ].copy()
+    high_unc['hybrid_prob'] = high_unc['hybrid_prob'].round(4)
+    high_unc['hybrid_mc_mean'] = high_unc['hybrid_mc_mean'].round(4)
+    high_unc['uncertainty'] = high_unc['uncertainty'].round(4)
+    high_unc['hybrid_ci_low'] = high_unc['hybrid_ci_low'].round(4)
+    high_unc['hybrid_ci_high'] = high_unc['hybrid_ci_high'].round(4)
+    high_unc['CI Width'] = (high_unc['hybrid_ci_high'] - high_unc['hybrid_ci_low']).round(4)
+    st.dataframe(high_unc, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 4: PER-COMPANY HYBRID PREDICTION EXPLORER
+    # ====================================================================
+    st.subheader("4. Per-Company Hybrid Prediction Explorer")
+
+    company_list = sorted(hybrid_pred['company_name'].dropna().unique().tolist())
+    selected = st.selectbox(
+        "Select a company",
+        company_list,
+        key='hybrid_company_selector',
+    )
+
+    if selected:
+        row = hybrid_pred[hybrid_pred['company_name'] == selected].iloc[0]
+
+        col_w, col_x, col_y, col_z = st.columns(4)
+        col_w.metric("XGBoost prob", f"{row['xgboost_prob']:.4f}")
+        col_x.metric("CatBoost prob", f"{row['catboost_prob']:.4f}")
+        col_y.metric("Hybrid prob", f"{row['hybrid_prob']:.4f}")
+        col_z.metric("Uncertainty (±)", f"{row['uncertainty']:.4f}")
+
+        # Confidence interval visualization
+        fig = go.Figure()
+
+        # CI bar
+        fig.add_trace(go.Scatter(
+            x=[row['hybrid_ci_low'], row['hybrid_ci_high']],
+            y=['Hybrid CI', 'Hybrid CI'],
+            mode='lines',
+            line=dict(color='#3498db', width=20),
+            name='95% Confidence Interval',
+            showlegend=False,
+        ))
+
+        # Mean prediction marker
+        fig.add_trace(go.Scatter(
+            x=[row['hybrid_mc_mean']],
+            y=['Hybrid CI'],
+            mode='markers',
+            marker=dict(color='#e74c3c', size=18, symbol='diamond'),
+            name='MC Mean',
+            text=[f"{row['hybrid_mc_mean']:.3f}"],
+            textposition='top center',
+        ))
+
+        # Decision threshold line
+        fig.add_vline(x=0.5, line_dash="dash", line_color="red",
+                      annotation_text="Decision threshold (0.5)",
+                      annotation_position="top")
+
+        fig.update_layout(
+            title=f'Prediction Confidence Interval for {selected}',
+            xaxis_title='Greenwashing probability',
+            xaxis_range=[0, 1],
+            height=300,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Verbal interpretation
+        prob = row['hybrid_prob']
+        unc = row['uncertainty']
+        ci_low = row['hybrid_ci_low']
+        ci_high = row['hybrid_ci_high']
+
+        if unc < 0.05:
+            st.success(f"**Highly confident prediction.** Standard deviation = {unc:.3f}, "
+                       f"CI = [{ci_low:.3f}, {ci_high:.3f}]. The prediction is stable.")
+        elif unc < 0.15:
+            st.info(f"**Moderately confident prediction.** Std = {unc:.3f}, "
+                    f"CI = [{ci_low:.3f}, {ci_high:.3f}]. Some sensitivity to training data.")
+        else:
+            st.warning(f"**Low-confidence prediction.** Std = {unc:.3f}, "
+                       f"CI = [{ci_low:.3f}, {ci_high:.3f}]. The prediction is unstable — "
+                       f"this company sits near the decision boundary. Manual review recommended.")
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 5: HYBRID FEATURE IMPORTANCE
+    # ====================================================================
+    st.subheader("5. Hybrid Feature Importance (XGB + CatBoost)")
+    st.markdown(
+        "Feature importance averaged from both base models, weighted by the optimal blend α."
+    )
+
+    if not hybrid_fi.empty:
+        new_feature_set = {
+            'paris_agreement_alignment', 'eu_taxonomy_alignment', 'sec_climate_alignment',
+            'tcfd_alignment', 'sdg_alignment', 'gri_standards_alignment',
+            'regulatory_breadth_index', 'total_policy_density', 'policy_specificity_score',
+            'policy_esg_gap', 'framework_consistency_score', 'regulatory_readiness_score',
+            'promotional_intent_density', 'defensive_intent_density', 'factual_intent_density',
+            'strategic_intent_density', 'narrative_credibility_index', 'promotional_dominance_score',
+            'intent_diversity_score', 'defensive_to_factual_ratio', 'sentiment_intent_divergence',
+            'news_greenwashing_signal', 'past_achievement_density', 'present_action_density',
+            'specific_future_density', 'vague_future_density', 'temporal_balance_score',
+            'commitment_credibility_score', 'temporal_specificity_ratio', 'progress_to_promise_ratio',
+            'year_mention_density', 'temporal_greenwashing_signal',
+            'multi_signal_greenwashing_score', 'esg_linguistic_credibility_index',
+            'aggregate_esg_nlp_score',
+        }
+
+        top20 = hybrid_fi.head(20).copy()
+        top20['is_new'] = top20['feature'].isin(new_feature_set)
+        top20['color'] = top20['is_new'].map({True: '#27ae60', False: '#e74c3c'})
+        top20 = top20.sort_values('hybrid_importance', ascending=True)
+
+        fig = go.Figure(go.Bar(
+            x=top20['hybrid_importance'],
+            y=top20['feature'],
+            orientation='h',
+            marker=dict(color=top20['color'].tolist()),
+            text=top20['hybrid_importance'].round(4),
+            textposition='outside',
+        ))
+        fig.update_layout(
+            title='Top 20 Features by Hybrid Model Importance (green = NEW Cat 7-10)',
+            xaxis_title='Hybrid Importance (normalized)',
+            yaxis_title='Feature',
+            height=600,
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+
+    # ====================================================================
+    # SECTION 6: HYBRID SHAP EXPLANATIONS
+    # ====================================================================
+    st.subheader("6. Hybrid Model SHAP Explanations")
+    st.markdown(
+        "SHAP values computed on the dominant base model (CatBoost given α ≈ 0). "
+        "These explain WHY the hybrid model assigns each company its probability."
+    )
+
+    if not hybrid_shap_fi.empty and not hybrid_shap_all.empty:
+        col1, col2 = st.columns([1, 1])
+
+        with col1:
+            st.markdown("**Top 15 SHAP features (Hybrid model):**")
+            top15_shap = hybrid_shap_fi.head(15).copy()
+            top15_shap = top15_shap.sort_values('shap_importance', ascending=True)
+            fig = go.Figure(go.Bar(
+                x=top15_shap['shap_importance'],
+                y=top15_shap['feature'],
+                orientation='h',
+                marker_color='#9b59b6',
+            ))
+            fig.update_layout(
+                xaxis_title='Mean |SHAP|',
+                height=500,
+                margin=dict(l=200),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.markdown("**Per-company SHAP waterfall (top 12 features):**")
+            sel_for_shap = st.selectbox(
+                "Company",
+                company_list,
+                index=company_list.index(selected) if selected in company_list else 0,
+                key='hybrid_shap_selector',
+            )
+
+            if sel_for_shap and sel_for_shap in hybrid_shap_all['company_name'].values:
+                comp_shap = hybrid_shap_all[hybrid_shap_all['company_name'] == sel_for_shap].iloc[0]
+                shap_features = [c for c in hybrid_shap_all.columns if c != 'company_name']
+                shap_vec = comp_shap[shap_features].astype(float)
+                top12_idx = shap_vec.abs().nlargest(12).index
+                wf = pd.DataFrame({
+                    'feature': top12_idx,
+                    'shap': [shap_vec[f] for f in top12_idx],
+                }).sort_values('shap', ascending=True)
+
+                fig = go.Figure(go.Bar(
+                    x=wf['shap'],
+                    y=wf['feature'],
+                    orientation='h',
+                    marker=dict(
+                        color=wf['shap'],
+                        colorscale='RdBu_r',
+                        cmid=0,
+                    ),
+                    text=[f"{v:+.3f}" for v in wf['shap']],
+                    textposition='outside',
+                ))
+                fig.add_vline(x=0, line_dash='dash', line_color='black')
+                fig.update_layout(
+                    xaxis_title='SHAP value',
+                    height=500,
+                    margin=dict(l=200),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Hybrid SHAP files not found. Run the SHAP computation step in `hybrid_xgb_catboost.py`.")
+
+    # ====================================================================
+    # SECTION 7: METHOD EXPLANATION
+    # ====================================================================
+    with st.expander("How the Hybrid Model Works (click to expand)", expanded=False):
+        st.markdown("""
+        ### Hybrid XGBoost-CatBoost with Monte Carlo
+
+        **Training pipeline:**
+        1. Split data 60/20/20 (train/validation/test)
+        2. Train XGBoost classifier on training set with early stopping on validation
+        3. Train CatBoost classifier on training set with early stopping on validation
+        4. Find optimal blend weight α by minimizing log-loss on validation:
+           ```
+           p_hybrid = α × p_xgboost + (1 − α) × p_catboost
+           ```
+           Grid search over α ∈ [0, 1] in steps of 0.01
+
+        **Monte Carlo uncertainty (20 runs):**
+        ```
+        for run in 1..20:
+            X_boot = bootstrap_sample(X_train, frac=0.8, seed=run)
+            xgb_run = train_xgboost(X_boot)
+            cat_run = train_catboost(X_boot)
+            p_run = α × xgb_run.predict(X_all) + (1−α) × cat_run.predict(X_all)
+            mc_predictions.append(p_run)
+
+        mc_mean = mean(mc_predictions, axis=0)
+        mc_std  = std(mc_predictions, axis=0)
+        ci_low  = percentile(mc_predictions, 2.5)
+        ci_high = percentile(mc_predictions, 97.5)
+        ```
+
+        **Why this design:**
+        - **XGBoost** is great at capturing complex numerical interactions
+        - **CatBoost** has stronger regularization (L2 leaf reg) and handles sparse features well
+        - Their decision boundaries differ — blending captures complementary signals
+        - **Monte Carlo** gives uncertainty estimates — critical for risk decisions
+          (a high-probability prediction with high uncertainty should NOT be acted on)
+
+        **Inspired by:** Optimized hybrid XGBoost-CatBoost model for enhanced prediction
+        of concrete strength and reliability analysis using Monte Carlo simulations
+        (ScienceDirect)
+        """)
+
+
+# ============================================================================
 # MAIN APP
 # ============================================================================
 
@@ -5365,6 +5817,8 @@ def main():
         page_timeseries_tracking(data)
     elif page == "SHAP Explanations":
         page_shap_explanations(data)
+    elif page == "Hybrid XGBoost-CatBoost Model":
+        page_hybrid_model(data)
 
 
 if __name__ == "__main__":
