@@ -250,6 +250,33 @@ def main():
             pred = (p_h >= 0.5).astype(int)
             all_results.append(evaluate('Hybrid XGB-CatBoost (50/50)', split_name, y_split, pred, p_h))
 
+    # === Cross-validation training scores (5-fold) ===
+    # Plain train metrics are saturated (all ~1.0 because of memorization).
+    # 5-fold CV on the training set gives meaningful generalization estimates
+    # WITHOUT touching the held-out validation or test sets.
+    print('\n[6.5] Computing 5-fold cross-validation scores on training set...')
+    from sklearn.model_selection import StratifiedKFold, cross_val_score
+
+    cv_results = {}
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    for name, model in trained_models.items():
+        try:
+            cv_acc = cross_val_score(model, X_train_s, y_train, cv=cv, scoring='accuracy', n_jobs=-1)
+            cv_f1 = cross_val_score(model, X_train_s, y_train, cv=cv, scoring='f1', n_jobs=-1)
+            cv_auc = cross_val_score(model, X_train_s, y_train, cv=cv, scoring='roc_auc', n_jobs=-1)
+            cv_results[name] = {
+                'cv_accuracy_mean': float(cv_acc.mean()),
+                'cv_accuracy_std': float(cv_acc.std()),
+                'cv_f1_mean': float(cv_f1.mean()),
+                'cv_f1_std': float(cv_f1.std()),
+                'cv_roc_auc_mean': float(cv_auc.mean()),
+                'cv_roc_auc_std': float(cv_auc.std()),
+                'cv_folds': 5,
+            }
+            print(f'  [+] {name:<22s}  CV ROC-AUC = {cv_auc.mean():.4f} +/- {cv_auc.std():.4f}')
+        except Exception as e:
+            print(f'  [!] {name}: CV failed -- {e}')
+
     # === Voting Ensemble (soft voting of top 3) ===
     print('\n[7] Building Soft Voting Ensemble (RF + XGB + CatBoost)...')
     if all(m in trained_models for m in ['Random Forest', 'XGBoost', 'CatBoost']):
@@ -292,11 +319,29 @@ def main():
         'random_seed': 42,
         'split_ratio': '60/20/20',
         'train_times_seconds': train_times,
+        'cv_results': cv_results,
         'results': all_results,
     }
     with open('data/processed/all_models_results.json', 'w') as f:
         json.dump(metadata, f, indent=2)
     print('  Saved data/processed/all_models_results.json')
+
+    # === CV results CSV ===
+    if cv_results:
+        cv_rows = []
+        for name, res in cv_results.items():
+            cv_rows.append({
+                'model': name,
+                'cv_accuracy_mean': res['cv_accuracy_mean'],
+                'cv_accuracy_std': res['cv_accuracy_std'],
+                'cv_f1_mean': res['cv_f1_mean'],
+                'cv_f1_std': res['cv_f1_std'],
+                'cv_roc_auc_mean': res['cv_roc_auc_mean'],
+                'cv_roc_auc_std': res['cv_roc_auc_std'],
+            })
+        cv_df = pd.DataFrame(cv_rows).sort_values('cv_roc_auc_mean', ascending=False)
+        cv_df.to_csv('data/processed/all_models_cv_results.csv', index=False)
+        print('  Saved data/processed/all_models_cv_results.csv')
 
     # === Print final tables ===
     print('\n' + '=' * 100)
@@ -317,6 +362,18 @@ def main():
             print(f'  {r["model"]:<28s}  {r["accuracy"]:>7.4f}  {r["balanced_accuracy"]:>7.4f}  '
                   f'{r["precision"]:>7.4f}  {r["recall"]:>7.4f}  {r["f1"]:>7.4f}  '
                   f'{r["roc_auc"]:>7.4f}  {r["log_loss"]:>8.4f}  {r["mcc"]:>7.4f}')
+
+    # === 5-fold CV training scores table ===
+    if cv_results:
+        print('\n  ===== 5-FOLD CV TRAINING SCORES (true generalization) =====')
+        print(f'  {"Model":<28s}  {"CV Acc (mean+/-std)":>22s}  {"CV F1 (mean+/-std)":>22s}  {"CV AUC (mean+/-std)":>22s}')
+        print('  ' + '-' * 100)
+        cv_sorted = sorted(cv_results.items(), key=lambda kv: -kv[1]['cv_roc_auc_mean'])
+        for name, r in cv_sorted:
+            acc_str = f'{r["cv_accuracy_mean"]:.4f} +/- {r["cv_accuracy_std"]:.4f}'
+            f1_str = f'{r["cv_f1_mean"]:.4f} +/- {r["cv_f1_std"]:.4f}'
+            auc_str = f'{r["cv_roc_auc_mean"]:.4f} +/- {r["cv_roc_auc_std"]:.4f}'
+            print(f'  {name:<28s}  {acc_str:>22s}  {f1_str:>22s}  {auc_str:>22s}')
 
     # === Identify best model on test set ===
     test_only = [r for r in all_results if r['split'] == 'test']
