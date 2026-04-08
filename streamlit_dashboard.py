@@ -665,6 +665,12 @@ def page_company_deep_dive(data):
                 'GW Linguistic Score': company_fm.get('greenwashing_signal_score'),
                 'Controversy Risk Ratio': company_fm.get('controversy_risk_ratio'),
                 'Combined Anomaly Score': company_fm.get('combined_anomaly_score'),
+                'Aggregate ESG NLP Score': company_fm.get('aggregate_esg_nlp_score'),
+                'Regulatory Readiness': company_fm.get('regulatory_readiness_score'),
+                'Policy-ESG Gap': company_fm.get('policy_esg_gap'),
+                'Narrative Credibility': company_fm.get('narrative_credibility_index'),
+                'Commitment Credibility': company_fm.get('commitment_credibility_score'),
+                'Multi-Signal GW Score': company_fm.get('multi_signal_greenwashing_score'),
             }
             kf_df = pd.DataFrame({
                 'Feature': list(key_features.keys()),
@@ -942,7 +948,84 @@ def page_company_search(data):
             'tag': 'WARNING',
         })
 
-    # 8. Sector Ranking
+    # 8. Government Policy Alignment
+    reg_readiness = float(company_fm.get('regulatory_readiness_score', 0)) if not pd.isna(company_fm.get('regulatory_readiness_score', 0)) else 0
+    policy_gap = float(company_fm.get('policy_esg_gap', 0.5)) if not pd.isna(company_fm.get('policy_esg_gap', 0.5)) else 0.5
+    reg_breadth = float(company_fm.get('regulatory_breadth_index', 0)) if not pd.isna(company_fm.get('regulatory_breadth_index', 0)) else 0
+    if reg_readiness < 0.15 and policy_gap > 0.6:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'Very low regulatory readiness ({reg_readiness:.3f}) with high policy-ESG gap ({policy_gap:.3f})',
+            'detail': f'Company uses ESG language without grounding in recognized frameworks (Paris Agreement, EU Taxonomy, TCFD, SDGs). '
+                      f'Regulatory breadth: {reg_breadth:.0%} of frameworks referenced. This is a strong greenwashing indicator.',
+            'tag': 'CRITICAL',
+        })
+    elif reg_readiness > 0.4:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'Strong regulatory alignment (readiness = {reg_readiness:.3f}, breadth = {reg_breadth:.0%})',
+            'detail': f'Company references recognized ESG frameworks. Policy-ESG gap = {policy_gap:.3f}.',
+            'tag': 'GOOD',
+        })
+
+    # 9. News Intent & Narrative Credibility
+    narrative_cred = float(company_fm.get('narrative_credibility_index', 0.5)) if not pd.isna(company_fm.get('narrative_credibility_index', 0.5)) else 0.5
+    promo_dom = float(company_fm.get('promotional_dominance_score', 0)) if not pd.isna(company_fm.get('promotional_dominance_score', 0)) else 0
+    news_gw = float(company_fm.get('news_greenwashing_signal', 0)) if not pd.isna(company_fm.get('news_greenwashing_signal', 0)) else 0
+    if promo_dom > 0.6 and narrative_cred < 0.3:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Highly promotional narrative (dominance = {promo_dom:.3f}) with low credibility ({narrative_cred:.3f})',
+            'detail': f'Text is dominated by marketing language rather than factual data or strategic substance. News GW signal = {news_gw:.3f}.',
+            'tag': 'WARNING',
+        })
+    elif narrative_cred > 0.6:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'Credible narrative profile (credibility = {narrative_cred:.3f})',
+            'detail': f'Communication is balanced between factual, strategic, and promotional content. Promotional dominance = {promo_dom:.3f}.',
+            'tag': 'GOOD',
+        })
+
+    # 10. Temporal Commitment Credibility
+    commit_cred = float(company_fm.get('commitment_credibility_score', 0.5)) if not pd.isna(company_fm.get('commitment_credibility_score', 0.5)) else 0.5
+    temporal_gw = float(company_fm.get('temporal_greenwashing_signal', 0.5)) if not pd.isna(company_fm.get('temporal_greenwashing_signal', 0.5)) else 0.5
+    ppr = float(company_fm.get('progress_to_promise_ratio', 0.5)) if not pd.isna(company_fm.get('progress_to_promise_ratio', 0.5)) else 0.5
+    if commit_cred < 0.3 and temporal_gw > 0.7:
+        reasons.append({
+            'icon': '⚠️', 'severity': 'warning',
+            'text': f'Low commitment credibility ({commit_cred:.3f}) -- promises outweigh past achievements',
+            'detail': f'Temporal GW signal = {temporal_gw:.3f}. Progress-to-promise ratio = {ppr:.3f}. '
+                      f'Company makes future commitments without demonstrating past delivery.',
+            'tag': 'WARNING',
+        })
+    elif commit_cred > 0.7:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'Strong commitment credibility ({commit_cred:.3f}) -- backed by past achievements',
+            'detail': f'Progress-to-promise ratio = {ppr:.3f}. Past delivery supports future commitments.',
+            'tag': 'GOOD',
+        })
+
+    # 11. Aggregate ESG NLP Score
+    agg_score = float(company_fm.get('aggregate_esg_nlp_score', 50)) if not pd.isna(company_fm.get('aggregate_esg_nlp_score', 50)) else 50
+    multi_gw = float(company_fm.get('multi_signal_greenwashing_score', 0.5)) if not pd.isna(company_fm.get('multi_signal_greenwashing_score', 0.5)) else 0.5
+    if agg_score < 30:
+        reasons.append({
+            'icon': '🚨', 'severity': 'critical',
+            'text': f'Very low Aggregate ESG NLP Score ({agg_score:.1f}/100) -- multiple greenwashing signals detected',
+            'detail': f'Multi-signal GW score = {multi_gw:.3f}. Linguistic, policy, temporal, and narrative dimensions all indicate elevated risk.',
+            'tag': 'CRITICAL',
+        })
+    elif agg_score > 70:
+        reasons.append({
+            'icon': '✅', 'severity': 'good',
+            'text': f'Strong Aggregate ESG NLP Score ({agg_score:.1f}/100) -- credible ESG communication',
+            'detail': f'Multi-signal GW score = {multi_gw:.3f}. Policy alignment, factual narrative, and temporal credibility are consistent.',
+            'tag': 'GOOD',
+        })
+
+    # 12. Sector Ranking
     sector = company_risk.get('sector', None)
     if sector:
         sector_peers = df[df['sector'] == sector].sort_values('risk_score', ascending=False)
@@ -1180,6 +1263,14 @@ def page_company_search(data):
         'Text Sentiment Polarity': ('text_polarity', 'Positive bias in ESG text'),
         'Flesch Reading Ease': ('flesch_reading_ease', 'Lower = harder to read (obfuscation?)'),
         'Lexical Diversity': ('lexical_diversity', 'Unique words / total words'),
+        'Aggregate ESG NLP Score': ('aggregate_esg_nlp_score', '0-100 composite ESG linguistic credibility'),
+        'Regulatory Readiness': ('regulatory_readiness_score', 'Policy framework alignment (Paris, EU, TCFD, SDGs)'),
+        'Policy-ESG Gap': ('policy_esg_gap', 'ESG talk without policy grounding = greenwashing'),
+        'Narrative Credibility': ('narrative_credibility_index', 'Factual+strategic vs promotional+defensive'),
+        'News GW Signal': ('news_greenwashing_signal', 'Promotional dominance + low credibility'),
+        'Commitment Credibility': ('commitment_credibility_score', 'Past achievements + specific future targets'),
+        'Temporal GW Signal': ('temporal_greenwashing_signal', 'Vague promises without past delivery'),
+        'Multi-Signal GW Score': ('multi_signal_greenwashing_score', 'Ensemble of linguistic, news, temporal GW signals'),
     }
 
     nlp_rows = []
@@ -2605,6 +2696,16 @@ def _generate_html_report(company_name, risk_data, fm_data, pred_data, fi_df, al
     mismatch = int(fm_data.get('risk_controversy_mismatch', 0)) if fm_data is not None else 0
     lexical_div = float(fm_data.get('lexical_diversity', 0)) if fm_data is not None else 0
 
+    # Enhanced NLP features (Categories 7-10)
+    aggregate_nlp = float(fm_data.get('aggregate_esg_nlp_score', 50)) if fm_data is not None else 50
+    reg_readiness = float(fm_data.get('regulatory_readiness_score', 0)) if fm_data is not None else 0
+    policy_gap = float(fm_data.get('policy_esg_gap', 0.5)) if fm_data is not None else 0.5
+    narrative_cred = float(fm_data.get('narrative_credibility_index', 0.5)) if fm_data is not None else 0.5
+    commit_cred = float(fm_data.get('commitment_credibility_score', 0.5)) if fm_data is not None else 0.5
+    multi_gw = float(fm_data.get('multi_signal_greenwashing_score', 0.5)) if fm_data is not None else 0.5
+    temporal_gw = float(fm_data.get('temporal_greenwashing_signal', 0.5)) if fm_data is not None else 0.5
+    news_gw = float(fm_data.get('news_greenwashing_signal', 0.5)) if fm_data is not None else 0.5
+
     # Predictions
     proxy_score = int(pred_data.get('gw_proxy_score', 0)) if pred_data is not None else 0
     label = int(pred_data.get('gw_label_binary', 0)) if pred_data is not None else 0
@@ -2836,6 +2937,42 @@ def _generate_html_report(company_name, risk_data, fm_data, pred_data, fi_df, al
 
 {"<div class='red-box'><strong>LINGUISTIC RED FLAG:</strong> Vague language count (" + str(vague_count) + ") significantly exceeds concrete evidence (" + str(concrete_count) + "). This is a classic greenwashing pattern.</div>" if vague_count > concrete_count * 1.5 and vague_count > 2 else ""}
 {"<div class='green-box'><strong>POSITIVE:</strong> Concrete evidence (" + str(concrete_count) + ") outweighs vague language (" + str(vague_count) + "). Corporate text appears substantive.</div>" if concrete_count >= vague_count and concrete_count > 1 else ""}
+
+<h3>4b. Enhanced ESG Intelligence (Policy, News, Temporal)</h3>
+
+<div class="kpi-grid">
+  <div class="kpi-card" style="border-top-color:{'#27ae60' if aggregate_nlp > 60 else '#ff9800' if aggregate_nlp > 35 else '#e74c3c'};">
+    <div class="value">{aggregate_nlp:.1f}/100</div>
+    <div class="label">Aggregate ESG NLP Score</div>
+  </div>
+  <div class="kpi-card" style="border-top-color:{'#27ae60' if reg_readiness > 0.4 else '#ff9800' if reg_readiness > 0.15 else '#e74c3c'};">
+    <div class="value">{reg_readiness:.3f}</div>
+    <div class="label">Regulatory Readiness</div>
+  </div>
+  <div class="kpi-card" style="border-top-color:{'#27ae60' if narrative_cred > 0.5 else '#ff9800' if narrative_cred > 0.3 else '#e74c3c'};">
+    <div class="value">{narrative_cred:.3f}</div>
+    <div class="label">Narrative Credibility</div>
+  </div>
+  <div class="kpi-card" style="border-top-color:{'#27ae60' if commit_cred > 0.6 else '#ff9800' if commit_cred > 0.3 else '#e74c3c'};">
+    <div class="value">{commit_cred:.3f}</div>
+    <div class="label">Commitment Credibility</div>
+  </div>
+</div>
+
+<table>
+  <tr><th>Enhanced Metric</th><th>Value</th><th>Risk Implication</th></tr>
+  <tr><td>Policy-ESG Gap</td><td>{policy_gap:.3f}</td>
+      <td style="color:{'#e74c3c' if policy_gap > 0.6 else '#333'};">{"High -- ESG talk without policy grounding" if policy_gap > 0.6 else "Acceptable"}</td></tr>
+  <tr><td>Multi-Signal GW Score</td><td>{multi_gw:.3f}</td>
+      <td style="color:{'#e74c3c' if multi_gw > 0.6 else '#ff9800' if multi_gw > 0.4 else '#333'};">{"High -- multiple GW signals" if multi_gw > 0.6 else "Moderate" if multi_gw > 0.4 else "Low risk"}</td></tr>
+  <tr><td>News GW Signal</td><td>{news_gw:.3f}</td>
+      <td style="color:{'#e74c3c' if news_gw > 0.5 else '#333'};">{"Promotional narrative dominates" if news_gw > 0.5 else "Balanced narrative"}</td></tr>
+  <tr><td>Temporal GW Signal</td><td>{temporal_gw:.3f}</td>
+      <td style="color:{'#e74c3c' if temporal_gw > 0.6 else '#333'};">{"Promises exceed past delivery" if temporal_gw > 0.6 else "Credible temporal pattern"}</td></tr>
+</table>
+
+{"<div class='red-box'><strong>POLICY GAP ALERT:</strong> Company uses ESG language without referencing recognized regulatory frameworks. Regulatory readiness = " + f'{reg_readiness:.3f}' + ".</div>" if reg_readiness < 0.15 and policy_gap > 0.6 else ""}
+{"<div class='green-box'><strong>STRONG POLICY ALIGNMENT:</strong> Company references recognized ESG frameworks with regulatory readiness = " + f'{reg_readiness:.3f}' + ".</div>" if reg_readiness > 0.4 else ""}
 
 <!-- KEY GREENWASHING INDICATORS -->
 <h2>5. Key Greenwashing Indicators</h2>
@@ -4019,6 +4156,12 @@ def page_company_comparison(data):
         ('text_polarity', 'Sentiment Polarity', 'Positive bias in text'),
         ('flesch_reading_ease', 'Readability', 'Higher = easier to read'),
         ('lexical_diversity', 'Lexical Diversity', 'Vocabulary richness'),
+        ('aggregate_esg_nlp_score', 'Aggregate ESG NLP Score', '0-100 composite credibility'),
+        ('regulatory_readiness_score', 'Regulatory Readiness', 'Policy framework alignment'),
+        ('policy_esg_gap', 'Policy-ESG Gap', 'ESG talk vs policy grounding'),
+        ('narrative_credibility_index', 'Narrative Credibility', 'Factual vs promotional'),
+        ('commitment_credibility_score', 'Commitment Credibility', 'Past achievements vs promises'),
+        ('multi_signal_greenwashing_score', 'Multi-Signal GW', 'Ensemble GW indicator'),
     ]
 
     nlp_data = []
@@ -4177,6 +4320,14 @@ def page_company_comparison(data):
         ('text_polarity', 'Text Sentiment', 'fm'),
         ('flesch_reading_ease', 'Readability (Flesch)', 'fm'),
         ('combined_anomaly_score', 'Anomaly Score', 'fm'),
+        ('aggregate_esg_nlp_score', 'Aggregate ESG NLP Score', 'fm'),
+        ('regulatory_readiness_score', 'Regulatory Readiness', 'fm'),
+        ('policy_esg_gap', 'Policy-ESG Gap', 'fm'),
+        ('narrative_credibility_index', 'Narrative Credibility', 'fm'),
+        ('commitment_credibility_score', 'Commitment Credibility', 'fm'),
+        ('multi_signal_greenwashing_score', 'Multi-Signal GW Score', 'fm'),
+        ('temporal_greenwashing_signal', 'Temporal GW Signal', 'fm'),
+        ('news_greenwashing_signal', 'News GW Signal', 'fm'),
     ]
 
     table_rows = []
