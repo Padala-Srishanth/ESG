@@ -1,7 +1,7 @@
 ======================================================================
 FEATURE ENGINEERING PIPELINE - EXECUTION SUMMARY
 ======================================================================
-Timestamp: 2026-04-01 08:06:09
+Timestamp: 2026-04-06 14:53:25
 
 INPUT DATA:
   Initial rows: 480
@@ -10,7 +10,7 @@ INPUT DATA:
 
 FEATURES ENGINEERED:
   Numerical features: 87
-  NLP features: 47
+  NLP features: 91
   Categorical features: 32
 
 QUALITY CHECKS:
@@ -19,6 +19,6 @@ QUALITY CHECKS:
   NaN values filled: 0
 
 FINAL OUTPUT:
-  Feature matrix shape: (480, 169)
-  Total features: 161
+  Feature matrix shape: (480, 213)
+  Total features: 205
 ======================================================================

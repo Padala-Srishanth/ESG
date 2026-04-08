@@ -1,27 +1,39 @@
 """
 ================================================================================
-FEATURE ENGINEERING - NLP TEXT FEATURES MODULE
+FEATURE ENGINEERING - NLP TEXT FEATURES MODULE (ENHANCED)
 ================================================================================
 Author  : ML Engineering Scientist (20+ years industry experience)
 Project : ESG Greenwashing Detection via NLP & Machine Learning
 Purpose : Extract rich numerical feature vectors from company description text
           using multiple NLP techniques — sentiment, readability, vocabulary
-          complexity, ESG keyword density, and linguistic greenwashing signals.
+          complexity, ESG keyword density, linguistic greenwashing signals,
+          government policy compliance, news intent analysis, temporal
+          linguistics, and cross-feature aggregate scoring.
 
 Design Philosophy:
     Text is the PRIMARY evidence of greenwashing. Companies reveal their
     true intentions through language patterns. This module converts raw
-    text descriptions into 50+ quantitative features that ML models can
+    text descriptions into 90+ quantitative features that ML models can
     consume. Every feature is designed with a specific greenwashing
     detection rationale.
 
+    NOVELTY: Categories 7-10 introduce government policy benchmarking,
+    news intent classification, temporal tense analysis, and a novel
+    cross-feature aggregate ESG credibility index — features not found
+    in standard ESG NLP pipelines. These are designed to maximize SHAP
+    interpretability and provide actionable policy-gap insights.
+
 Feature Categories:
-    1. Sentiment Features       — VADER polarity, subjectivity, confidence
-    2. Readability Features     — Flesch, Gunning Fog, syllable complexity
-    3. Vocabulary Features      — lexical diversity, word frequencies, n-grams
-    4. ESG Keyword Features     — domain-specific term density per pillar
-    5. Greenwashing Linguistic   — vagueness, hedging, superlatives, future tense
-    6. Document Structure       — sentence count, paragraph length, section balance
+    1. Sentiment Features            — VADER polarity, subjectivity, confidence
+    2. Readability Features          — Flesch, Gunning Fog, syllable complexity
+    3. Vocabulary Features           — lexical diversity, word frequencies, n-grams
+    4. ESG Keyword Features          — domain-specific term density per pillar
+    5. Greenwashing Linguistic       — vagueness, hedging, superlatives, future tense
+    6. Document Structure            — sentence count, paragraph length, section balance
+    7. Government Policy Compliance  — alignment to Paris, EU Taxonomy, TCFD, SDGs, SEC
+    8. News Intent & Narrative       — promotional vs factual, defensive, crisis patterns
+    9. Temporal Linguistic Signals   — tense ratios, commitment horizons, progress tracking
+   10. Cross-Feature Aggregate Score — ESG credibility index, SHAP-optimized interactions
 ================================================================================
 """
 
@@ -163,6 +175,201 @@ class NLPFeatureEngineer:
             'verified', 'certified', 'audited', 'third-party',  # Verification terms
             'measured', 'reported', 'disclosed', 'published',   # Reporting terms
             'baseline', 'benchmark', 'metric', 'kpi'            # Measurement terms
+        ]
+
+        # ==================================================================
+        # GOVERNMENT POLICY & REGULATORY FRAMEWORK LEXICONS
+        # ==================================================================
+        # Curated from major global ESG regulatory frameworks and standards
+        # Used to measure company alignment with government policy expectations
+
+        # Paris Agreement & Climate Policy keywords
+        self.paris_agreement_keywords = [
+            'paris agreement', 'paris accord', 'nationally determined',
+            'ndc', '1.5 degree', '1.5°c', '2 degree', '2°c',
+            'cop26', 'cop27', 'cop28', 'unfccc', 'kyoto',
+            'carbon neutral', 'carbon neutrality', 'net zero', 'net-zero',
+            'climate action', 'climate target', 'science-based target',
+            'sbti', 'science based targets initiative',
+            'carbon budget', 'carbon pricing', 'carbon tax',
+            'emission reduction', 'emissions reduction',
+            'decarbonization', 'decarbonisation', 'just transition'
+        ]
+
+        # EU Taxonomy & European Regulation keywords
+        self.eu_taxonomy_keywords = [
+            'eu taxonomy', 'european taxonomy', 'taxonomy regulation',
+            'sustainable finance', 'sfdr', 'csrd', 'nfrd',
+            'corporate sustainability reporting', 'double materiality',
+            'taxonomy alignment', 'taxonomy eligible',
+            'substantial contribution', 'do no significant harm', 'dnsh',
+            'technical screening criteria', 'minimum safeguards',
+            'green bond', 'green bond standard', 'ecolabel',
+            'eu green deal', 'european green deal', 'fit for 55',
+            'cbam', 'carbon border', 'ets', 'emissions trading'
+        ]
+
+        # SEC Climate Disclosure & US Regulation keywords
+        # Broadened to include terms found in business descriptions
+        self.sec_climate_keywords = [
+            'sec climate', 'sec disclosure', 'climate disclosure',
+            'climate risk disclosure', 'material climate risk',
+            'regulation s-k', 'form 10-k climate', 'proxy statement',
+            'fiduciary duty', 'shareholder proposal',
+            'dodd-frank', 'esg disclosure', 'mandatory disclosure',
+            'climate litigation', 'stranded asset', 'stranded assets',
+            'physical risk', 'transition risk', 'climate scenario',
+            'stress test', 'climate stress',
+            'securities', 'regulatory', 'regulation', 'compliance',
+            'oversight', 'material', 'disclosure'
+        ]
+
+        # TCFD (Task Force on Climate-related Financial Disclosures)
+        # Broadened to include governance and risk management terms
+        self.tcfd_keywords = [
+            'tcfd', 'task force on climate', 'climate-related financial',
+            'governance of climate', 'climate strategy',
+            'climate risk management', 'climate metrics',
+            'climate targets', 'scenario analysis',
+            'climate governance', 'board oversight climate',
+            'climate opportunity', 'climate resilience',
+            'risk management', 'board', 'governance', 'climate',
+            'reporting', 'audit', 'assurance'
+        ]
+
+        # UN Sustainable Development Goals (SDGs)
+        self.sdg_keywords = [
+            'sdg', 'sustainable development goal', 'sdgs',
+            'no poverty', 'zero hunger', 'good health',
+            'quality education', 'gender equality', 'clean water',
+            'affordable energy', 'decent work', 'industry innovation',
+            'reduced inequalities', 'sustainable cities',
+            'responsible consumption', 'climate action',
+            'life below water', 'life on land', 'peace justice',
+            'partnerships for the goals', 'un global compact',
+            'ungc', 'principles for responsible investment', 'pri'
+        ]
+
+        # GRI Standards (Global Reporting Initiative)
+        # Broadened to include reporting and stakeholder terms
+        self.gri_standards_keywords = [
+            'gri standards', 'gri reporting', 'gri framework',
+            'materiality assessment', 'stakeholder engagement',
+            'gri 300', 'gri 400', 'gri 200',
+            'universal standards', 'topic standards',
+            'reporting boundary', 'reporting period',
+            'assurance statement', 'external assurance',
+            'integrated reporting', 'iirc', 'value reporting',
+            'materiality', 'stakeholder', 'reporting',
+            'transparency', 'accountability'
+        ]
+
+        # ==================================================================
+        # NEWS INTENT & NARRATIVE PATTERN LEXICONS
+        # ==================================================================
+        # Patterns for classifying the communicative intent of company text
+
+        # Promotional / Marketing language patterns
+        self.promotional_patterns = [
+            'proud to announce', 'excited to', 'thrilled to',
+            'delighted to', 'pleased to announce', 'honored to',
+            'award-winning', 'recognized as', 'named as',
+            'industry leader', 'market leader', 'global leader',
+            'best practice', 'gold standard', 'flagship',
+            'showcase', 'highlight', 'celebrate', 'milestone'
+        ]
+
+        # Defensive / Crisis-response language patterns
+        self.defensive_patterns = [
+            'we deny', 'we reject', 'allegations', 'allegation',
+            'unfounded', 'misleading', 'inaccurate', 'taken out of context',
+            'we disagree', 'we dispute', 'contrary to reports',
+            'clarify', 'clarification', 'set the record straight',
+            'regret', 'apologize', 'apology', 'deeply sorry',
+            'remediation', 'remedial', 'corrective action',
+            'investigation', 'under review', 'compliance review'
+        ]
+
+        # Factual / Data-driven language patterns
+        # Adapted for corporate descriptions: includes business metrics,
+        # quantitative terms, and operational specifics found in SEC filings
+        self.factual_patterns = [
+            'according to', 'data shows', 'evidence indicates',
+            'research demonstrates', 'study found', 'analysis reveals',
+            'year-over-year', 'quarter-over-quarter', 'compared to',
+            'increased from', 'decreased from', 'grew by',
+            'declined by', 'remained stable', 'fluctuated',
+            'approximately', 'million', 'billion', 'revenue',
+            'segments', 'operates', 'headquartered', 'founded',
+            'subsidiaries', 'customers', 'employs', 'portfolio',
+            'generated', 'reported', 'fiscal', 'annual'
+        ]
+
+        # Forward-looking / Strategic language patterns
+        # Adapted for corporate descriptions: includes business strategy,
+        # market positioning, and operational planning terms
+        self.strategic_patterns = [
+            'strategic priority', 'long-term strategy', 'roadmap',
+            'action plan', 'implementation plan', 'phased approach',
+            'interim target', 'short-term goal', 'medium-term',
+            'milestone', 'deliverable', 'key performance indicator',
+            'accountability', 'governance structure', 'oversight mechanism',
+            'review mechanism', 'progress report', 'annual review',
+            'strategic', 'strategy', 'market', 'platform',
+            'investment', 'acquisition', 'diversified', 'scale',
+            'partnership', 'innovation', 'pipeline', 'expansion'
+        ]
+
+        # ==================================================================
+        # TEMPORAL LINGUISTIC PATTERNS
+        # ==================================================================
+        # Patterns for detecting temporal orientation in text
+
+        # Past tense / Achievement language
+        # Adapted for corporate descriptions: includes company founding,
+        # historical operations, and established business activities
+        self.past_achievement_patterns = [
+            'achieved', 'accomplished', 'completed', 'delivered',
+            'implemented', 'established', 'launched', 'deployed',
+            'reduced', 'eliminated', 'resolved', 'addressed',
+            'invested', 'donated', 'contributed', 'partnered',
+            'last year', 'previous year', 'in 2020', 'in 2021',
+            'in 2022', 'in 2023', 'in 2024', 'in 2025',
+            'since 2015', 'since 2018', 'since 2020',
+            'historically', 'over the past', 'in recent years',
+            'founded', 'built', 'developed', 'created',
+            'expanded', 'acquired', 'generated', 'grew'
+        ]
+
+        # Present tense / Current action language
+        self.present_action_patterns = [
+            'currently', 'now', 'today', 'this year',
+            'ongoing', 'in progress', 'underway', 'active',
+            'we are', 'we have', 'we operate', 'we maintain',
+            'continuously', 'regularly', 'consistently',
+            'at present', 'as of', 'real-time', 'day-to-day'
+        ]
+
+        # Specific future timeline patterns (verifiable commitments)
+        # Includes fiscal/financial reporting terms common in SEC filings
+        self.specific_future_patterns = [
+            'by 2025', 'by 2026', 'by 2027', 'by 2028',
+            'by 2029', 'by 2030', 'by 2035', 'by 2040',
+            'by 2045', 'by 2050', 'within 5 years',
+            'within 3 years', 'within 2 years', 'next year',
+            'q1', 'q2', 'q3', 'q4', 'fiscal year',
+            'first half', 'second half', 'by end of',
+            'fiscal', 'annual', 'quarterly', 'pipeline',
+            'backlog', 'contracted', 'scheduled'
+        ]
+
+        # Vague future patterns (unverifiable promises)
+        self.vague_future_patterns = [
+            'someday', 'eventually', 'in the future',
+            'in due course', 'when possible', 'as soon as',
+            'in the coming years', 'over time', 'gradually',
+            'step by step', 'moving forward', 'going forward',
+            'down the road', 'in the long run', 'one day'
         ]
 
     # ========================================================================
@@ -935,38 +1142,877 @@ class NLPFeatureEngineer:
         return df                                                 # Return enriched dataframe
 
     # ========================================================================
+    # CATEGORY 7: GOVERNMENT POLICY COMPLIANCE FEATURES
+    # ========================================================================
+
+    def extract_government_policy_features(self, df, text_column='description'):
+        """
+        Measure company text alignment against major government ESG policies.
+
+        Rationale:
+            Government policies set the STANDARD for ESG performance. Companies
+            that reference specific frameworks (Paris Agreement, EU Taxonomy,
+            TCFD, SDGs) demonstrate awareness and commitment. Companies that
+            use ESG language WITHOUT referencing any regulatory framework are
+            more likely greenwashing — they adopt the vocabulary without the
+            accountability structure.
+
+            NOVEL INSIGHT: The ratio of policy-aligned language to total ESG
+            language reveals whether a company's ESG claims are grounded in
+            recognized standards or are self-defined (higher greenwashing risk).
+
+        Mathematical Framework:
+            Policy Alignment Score (PAS):
+                PAS_i = sum(policy_keyword_hits_i) / max(total_esg_keywords, 1)
+                for each framework i in {Paris, EU, SEC, TCFD, SDG, GRI}
+
+            Regulatory Breadth Index (RBI):
+                RBI = count(frameworks_mentioned > 0) / total_frameworks
+                Range: [0, 1], where 1 = mentions all 6 frameworks
+
+            Policy Gap Score (PGS):
+                PGS = sigmoid(esg_keyword_density - policy_keyword_density)
+                High PGS = lots of ESG talk but no policy grounding
+
+        Features Created (12):
+            - paris_agreement_alignment     : Paris Agreement keyword density
+            - eu_taxonomy_alignment         : EU Taxonomy keyword density
+            - sec_climate_alignment         : SEC Climate Disclosure keyword density
+            - tcfd_alignment                : TCFD framework keyword density
+            - sdg_alignment                 : UN SDG keyword density
+            - gri_standards_alignment       : GRI Standards keyword density
+            - regulatory_breadth_index      : Fraction of frameworks mentioned
+            - total_policy_density          : Combined policy keyword density
+            - policy_specificity_score      : Specific vs generic policy references
+            - policy_esg_gap               : Gap between ESG talk and policy grounding
+            - framework_consistency_score   : Consistency across mentioned frameworks
+            - regulatory_readiness_score    : Composite regulatory preparedness (0-1)
+        """
+
+        print("    [7/10] Extracting government policy compliance features...")
+
+        # Store all 6 framework lexicons for iteration
+        policy_frameworks = {
+            'paris': self.paris_agreement_keywords,
+            'eu_taxonomy': self.eu_taxonomy_keywords,
+            'sec_climate': self.sec_climate_keywords,
+            'tcfd': self.tcfd_keywords,
+            'sdg': self.sdg_keywords,
+            'gri': self.gri_standards_keywords
+        }
+
+        # Initialize storage for all 12 features
+        paris_scores = []
+        eu_scores = []
+        sec_scores = []
+        tcfd_scores = []
+        sdg_scores = []
+        gri_scores = []
+        breadth_indices = []
+        total_policy_densities = []
+        specificity_scores = []
+        policy_gaps = []
+        consistency_scores = []
+        readiness_scores = []
+
+        for idx, row in df.iterrows():
+            text = str(row.get(text_column, '')).lower()
+            words = re.findall(r'\b[a-z]+\b', text)
+            total_words = max(len(words), 1)
+
+            # ------------------------------------------------------------------
+            # Count keyword hits per framework
+            # ------------------------------------------------------------------
+            framework_hits = {}
+            framework_densities = {}
+            for name, keywords in policy_frameworks.items():
+                hits = sum(text.count(kw) for kw in keywords)
+                framework_hits[name] = hits
+                framework_densities[name] = hits / total_words
+
+            paris_scores.append(framework_densities['paris'])
+            eu_scores.append(framework_densities['eu_taxonomy'])
+            sec_scores.append(framework_densities['sec_climate'])
+            tcfd_scores.append(framework_densities['tcfd'])
+            sdg_scores.append(framework_densities['sdg'])
+            gri_scores.append(framework_densities['gri'])
+
+            # ------------------------------------------------------------------
+            # Regulatory Breadth Index: fraction of frameworks mentioned
+            # ------------------------------------------------------------------
+            frameworks_mentioned = sum(
+                1 for hits in framework_hits.values() if hits > 0
+            )
+            rbi = frameworks_mentioned / len(policy_frameworks)
+            breadth_indices.append(rbi)
+
+            # ------------------------------------------------------------------
+            # Total policy keyword density
+            # ------------------------------------------------------------------
+            total_policy_hits = sum(framework_hits.values())
+            total_policy_density = total_policy_hits / total_words
+            total_policy_densities.append(total_policy_density)
+
+            # ------------------------------------------------------------------
+            # Policy Specificity Score
+            # Specific references (named frameworks) vs generic ESG language
+            # High specificity = more credible ESG claims
+            # ------------------------------------------------------------------
+            # Count all ESG keywords (from Category 4 lexicons)
+            all_esg_hits = (
+                sum(text.count(kw) for kw in self.env_keywords)
+                + sum(text.count(kw) for kw in self.social_keywords)
+                + sum(text.count(kw) for kw in self.gov_keywords)
+            )
+            specificity = (
+                total_policy_hits / max(all_esg_hits, 1)
+            )
+            # Cap at 1.0 (policy refs can't exceed ESG refs meaningfully)
+            specificity_scores.append(min(specificity, 1.0))
+
+            # ------------------------------------------------------------------
+            # Policy-ESG Gap Score
+            # Measures: company talks ESG but doesn't ground in policy
+            # Formula: sigmoid(esg_density - policy_density)
+            # High gap = greenwashing signal (ESG buzzwords without framework)
+            # ------------------------------------------------------------------
+            esg_density = all_esg_hits / total_words
+            raw_gap = esg_density - total_policy_density
+            policy_gap = 1.0 / (1.0 + np.exp(-15 * raw_gap))
+            policy_gaps.append(policy_gap)
+
+            # ------------------------------------------------------------------
+            # Framework Consistency Score
+            # If a company mentions multiple frameworks, are they balanced?
+            # Low std across mentioned frameworks = consistent engagement
+            # ------------------------------------------------------------------
+            mentioned_densities = [
+                d for d in framework_densities.values() if d > 0
+            ]
+            if len(mentioned_densities) >= 2:
+                consistency = 1.0 - min(
+                    np.std(mentioned_densities) / (np.mean(mentioned_densities) + 1e-8),
+                    1.0
+                )
+            elif len(mentioned_densities) == 1:
+                consistency = 0.5                                    # Single framework = partial
+            else:
+                consistency = 0.0                                    # No frameworks = no consistency
+            consistency_scores.append(consistency)
+
+            # ------------------------------------------------------------------
+            # Regulatory Readiness Score (Composite)
+            # Weighted combination of breadth, specificity, and consistency
+            # Formula: 0.35*RBI + 0.30*specificity + 0.20*consistency + 0.15*(1-gap)
+            # ------------------------------------------------------------------
+            readiness = (
+                0.35 * rbi
+                + 0.30 * min(specificity, 1.0)
+                + 0.20 * consistency
+                + 0.15 * (1.0 - policy_gap)
+            )
+            readiness_scores.append(readiness)
+
+        # Assign all features to dataframe
+        df['paris_agreement_alignment'] = paris_scores
+        df['eu_taxonomy_alignment'] = eu_scores
+        df['sec_climate_alignment'] = sec_scores
+        df['tcfd_alignment'] = tcfd_scores
+        df['sdg_alignment'] = sdg_scores
+        df['gri_standards_alignment'] = gri_scores
+        df['regulatory_breadth_index'] = breadth_indices
+        df['total_policy_density'] = total_policy_densities
+        df['policy_specificity_score'] = specificity_scores
+        df['policy_esg_gap'] = policy_gaps
+        df['framework_consistency_score'] = consistency_scores
+        df['regulatory_readiness_score'] = readiness_scores
+
+        # Register features
+        self.feature_registry['government_policy'] = {
+            'count': 12,
+            'features': [
+                'paris_agreement_alignment', 'eu_taxonomy_alignment',
+                'sec_climate_alignment', 'tcfd_alignment',
+                'sdg_alignment', 'gri_standards_alignment',
+                'regulatory_breadth_index', 'total_policy_density',
+                'policy_specificity_score', 'policy_esg_gap',
+                'framework_consistency_score', 'regulatory_readiness_score'
+            ]
+        }
+
+        return df
+
+    # ========================================================================
+    # CATEGORY 8: NEWS INTENT & NARRATIVE ANALYSIS FEATURES
+    # ========================================================================
+
+    def extract_news_intent_features(self, df, text_column='description'):
+        """
+        Classify the communicative intent and narrative strategy in company text.
+
+        Rationale:
+            Company communications serve different purposes — promotional,
+            defensive, factual, or strategic. Greenwashing companies
+            disproportionately use PROMOTIONAL language and avoid FACTUAL
+            or DEFENSIVE disclosures. By classifying intent, we create
+            features that help SHAP explain WHY a company is flagged.
+
+            NEWS INSIGHT: When a company's text is mostly promotional but
+            their controversy score is high, the intent-reality divergence
+            is a powerful greenwashing signal. This cross-referencing with
+            existing features creates SHAP-interpretable interactions.
+
+        Mathematical Framework:
+            Intent Classification Vector (ICV):
+                ICV = [promotional_d, defensive_d, factual_d, strategic_d]
+                where _d = density (hits / total_words)
+
+            Narrative Credibility Index (NCI):
+                NCI = (factual_d + strategic_d) / (promotional_d + defensive_d + eps)
+                High NCI = substantive communication
+                Low NCI = marketing-heavy or crisis-driven communication
+
+            Promotional Dominance Score (PDS):
+                PDS = promotional_d / (sum(ICV) + eps)
+                Range: [0, 1], where 1 = purely promotional
+
+        Features Created (10):
+            - promotional_intent_density    : Marketing/PR language density
+            - defensive_intent_density      : Crisis/denial language density
+            - factual_intent_density        : Data-driven language density
+            - strategic_intent_density      : Strategic planning language density
+            - narrative_credibility_index   : Factual+strategic vs promotional+defensive
+            - promotional_dominance_score   : How promotional the overall text is
+            - intent_diversity_score        : Shannon entropy across 4 intent types
+            - defensive_to_factual_ratio    : Denial language vs evidence language
+            - sentiment_intent_divergence   : Gap between positive sentiment and factual content
+            - news_greenwashing_signal      : Combined news-based greenwashing indicator
+        """
+
+        print("    [8/10] Extracting news intent & narrative features...")
+
+        # Initialize storage for all 10 features
+        promotional_densities = []
+        defensive_densities = []
+        factual_densities = []
+        strategic_densities = []
+        credibility_indices = []
+        dominance_scores = []
+        diversity_scores = []
+        defensive_factual_ratios = []
+        sentiment_intent_gaps = []
+        news_gw_signals = []
+
+        for idx, row in df.iterrows():
+            text = str(row.get(text_column, '')).lower()
+            words = re.findall(r'\b[a-z]+\b', text)
+            total_words = max(len(words), 1)
+
+            # Count hits for each intent category
+            promo_hits = sum(text.count(p) for p in self.promotional_patterns)
+            defense_hits = sum(text.count(p) for p in self.defensive_patterns)
+            factual_hits = sum(text.count(p) for p in self.factual_patterns)
+            strategic_hits = sum(text.count(p) for p in self.strategic_patterns)
+
+            # Calculate densities
+            promo_d = promo_hits / total_words
+            defense_d = defense_hits / total_words
+            factual_d = factual_hits / total_words
+            strategic_d = strategic_hits / total_words
+
+            promotional_densities.append(promo_d)
+            defensive_densities.append(defense_d)
+            factual_densities.append(factual_d)
+            strategic_densities.append(strategic_d)
+
+            # ------------------------------------------------------------------
+            # Narrative Credibility Index (NCI)
+            # Substantive (factual + strategic) vs superficial (promo + defensive)
+            # ------------------------------------------------------------------
+            substantive = factual_d + strategic_d
+            superficial = promo_d + defense_d
+            nci = substantive / (superficial + 1e-8)
+            # Normalize to [0, 1] with sigmoid
+            nci_normalized = 1.0 / (1.0 + np.exp(-2 * (nci - 1.0)))
+            credibility_indices.append(nci_normalized)
+
+            # ------------------------------------------------------------------
+            # Promotional Dominance Score
+            # What fraction of all intent signals is promotional?
+            # ------------------------------------------------------------------
+            total_intent = promo_d + defense_d + factual_d + strategic_d
+            pds = promo_d / (total_intent + 1e-8)
+            dominance_scores.append(pds)
+
+            # ------------------------------------------------------------------
+            # Intent Diversity Score (Shannon Entropy)
+            # High entropy = balanced communication across intent types
+            # Low entropy = dominated by single intent (suspicious if promotional)
+            # ------------------------------------------------------------------
+            intent_vec = [promo_d, defense_d, factual_d, strategic_d]
+            intent_sum = sum(intent_vec) + 1e-8
+            probs = [v / intent_sum for v in intent_vec]
+            entropy = -sum(
+                p * np.log2(p + 1e-10) for p in probs
+            )
+            # Normalize by max entropy (log2(4) = 2.0)
+            diversity_scores.append(entropy / 2.0)
+
+            # ------------------------------------------------------------------
+            # Defensive-to-Factual Ratio
+            # High ratio = more denial than evidence (crisis mode without data)
+            # Normalized with sigmoid to bound output in [0, 1]
+            # ------------------------------------------------------------------
+            dtf_raw = (defense_d + 1e-8) / (factual_d + 1e-8)
+            dtf_ratio = 1.0 / (1.0 + np.exp(-2 * (dtf_raw - 1.0)))
+            defensive_factual_ratios.append(dtf_ratio)
+
+            # ------------------------------------------------------------------
+            # Sentiment-Intent Divergence
+            # If text is very positive (from Category 1) but low on factual
+            # content, this divergence signals potential greenwashing.
+            # Uses polarity from already-computed sentiment features.
+            # ------------------------------------------------------------------
+            polarity = row.get('text_polarity', 0.0)
+            if pd.isna(polarity):
+                polarity = 0.0
+            # Divergence = high positivity combined with low factual density
+            sid = max(polarity, 0) * (1.0 - min(factual_d * 50, 1.0))
+            sentiment_intent_gaps.append(sid)
+
+            # ------------------------------------------------------------------
+            # News Greenwashing Signal (Composite)
+            # Combines promotional dominance, low credibility, low factual
+            # Formula: 0.4*pds + 0.3*(1-nci_norm) + 0.3*sid
+            # ------------------------------------------------------------------
+            news_gw = (
+                0.4 * pds
+                + 0.3 * (1.0 - nci_normalized)
+                + 0.3 * sid
+            )
+            news_gw_signals.append(news_gw)
+
+        # Assign all features to dataframe
+        df['promotional_intent_density'] = promotional_densities
+        df['defensive_intent_density'] = defensive_densities
+        df['factual_intent_density'] = factual_densities
+        df['strategic_intent_density'] = strategic_densities
+        df['narrative_credibility_index'] = credibility_indices
+        df['promotional_dominance_score'] = dominance_scores
+        df['intent_diversity_score'] = diversity_scores
+        df['defensive_to_factual_ratio'] = defensive_factual_ratios
+        df['sentiment_intent_divergence'] = sentiment_intent_gaps
+        df['news_greenwashing_signal'] = news_gw_signals
+
+        # Register features
+        self.feature_registry['news_intent'] = {
+            'count': 10,
+            'features': [
+                'promotional_intent_density', 'defensive_intent_density',
+                'factual_intent_density', 'strategic_intent_density',
+                'narrative_credibility_index', 'promotional_dominance_score',
+                'intent_diversity_score', 'defensive_to_factual_ratio',
+                'sentiment_intent_divergence', 'news_greenwashing_signal'
+            ]
+        }
+
+        return df
+
+    # ========================================================================
+    # CATEGORY 9: TEMPORAL LINGUISTIC & TIME SERIES FEATURES
+    # ========================================================================
+
+    def extract_temporal_linguistic_features(self, df, text_column='description'):
+        """
+        Analyze temporal orientation and commitment horizon in company text.
+
+        Rationale:
+            TIME is a critical dimension of greenwashing. Companies that:
+            - Overuse FUTURE TENSE without PAST ACHIEVEMENTS = promise without proof
+            - Use VAGUE timelines ("eventually") vs SPECIFIC dates ("by 2030")
+            - Show heavy PRESENT language without concrete PAST results
+
+            This temporal analysis creates features that improve time-series
+            ESG modeling by capturing the linguistic dimension of temporal
+            commitment — a novel signal not in standard ESG feature sets.
+
+        Mathematical Framework:
+            Temporal Orientation Vector (TOV):
+                TOV = [past_d, present_d, specific_future_d, vague_future_d]
+
+            Commitment Credibility Score (CCS):
+                CCS = (past_d + specific_future_d) / (vague_future_d + past_d + eps)
+                High CCS = verifiable track record + specific targets
+                Low CCS = vague promises without evidence of past delivery
+
+            Temporal Specificity Ratio (TSR):
+                TSR = specific_future_d / (specific_future_d + vague_future_d + eps)
+                Range: [0, 1], where 1 = all future refs are specific
+
+            Progress-to-Promise Ratio (PPR):
+                PPR = past_achievement_d / (future_total_d + eps)
+                High PPR = company delivers more than it promises
+                Low PPR = company promises more than it delivers (greenwashing)
+
+        Features Created (10):
+            - past_achievement_density      : Past tense achievement language density
+            - present_action_density        : Present tense action language density
+            - specific_future_density       : Specific dated future commitments density
+            - vague_future_density          : Vague undated future promises density
+            - temporal_balance_score        : Balance across past/present/future
+            - commitment_credibility_score  : Past track record + specific targets
+            - temporal_specificity_ratio    : Specific vs vague future references
+            - progress_to_promise_ratio     : Achievements vs promises ratio
+            - year_mention_density          : Density of specific year references
+            - temporal_greenwashing_signal  : Composite temporal GW indicator
+        """
+
+        print("    [9/10] Extracting temporal linguistic features...")
+
+        # Initialize storage for all 10 features
+        past_densities = []
+        present_densities = []
+        specific_future_densities = []
+        vague_future_densities = []
+        temporal_balances = []
+        credibility_scores = []
+        specificity_ratios = []
+        progress_promise_ratios = []
+        year_densities = []
+        temporal_gw_signals = []
+
+        for idx, row in df.iterrows():
+            text = str(row.get(text_column, '')).lower()
+            words = re.findall(r'\b[a-z]+\b', text)
+            total_words = max(len(words), 1)
+
+            # Count hits for each temporal category
+            past_hits = sum(text.count(p) for p in self.past_achievement_patterns)
+            present_hits = sum(text.count(p) for p in self.present_action_patterns)
+            spec_future_hits = sum(text.count(p) for p in self.specific_future_patterns)
+            vague_future_hits = sum(text.count(p) for p in self.vague_future_patterns)
+
+            # Calculate densities
+            past_d = past_hits / total_words
+            present_d = present_hits / total_words
+            spec_future_d = spec_future_hits / total_words
+            vague_future_d = vague_future_hits / total_words
+
+            past_densities.append(past_d)
+            present_densities.append(present_d)
+            specific_future_densities.append(spec_future_d)
+            vague_future_densities.append(vague_future_d)
+
+            # ------------------------------------------------------------------
+            # Temporal Balance Score
+            # Shannon entropy across 4 temporal orientations
+            # Balanced temporal communication = higher credibility
+            # ------------------------------------------------------------------
+            temp_vec = [past_d, present_d, spec_future_d, vague_future_d]
+            temp_sum = sum(temp_vec) + 1e-8
+            temp_probs = [v / temp_sum for v in temp_vec]
+            temp_entropy = -sum(
+                p * np.log2(p + 1e-10) for p in temp_probs
+            )
+            temporal_balances.append(temp_entropy / 2.0)
+
+            # ------------------------------------------------------------------
+            # Commitment Credibility Score (CCS)
+            # Companies with past achievements + specific future targets = credible
+            # ------------------------------------------------------------------
+            credible = past_d + spec_future_d
+            incredible = vague_future_d + 1e-8
+            ccs_raw = credible / (credible + incredible)
+            credibility_scores.append(ccs_raw)
+
+            # ------------------------------------------------------------------
+            # Temporal Specificity Ratio (TSR)
+            # Of all future-oriented language, how much is specific vs vague?
+            # ------------------------------------------------------------------
+            future_total = spec_future_d + vague_future_d
+            tsr = spec_future_d / (future_total + 1e-8)
+            specificity_ratios.append(tsr)
+
+            # ------------------------------------------------------------------
+            # Progress-to-Promise Ratio (PPR)
+            # Past achievements / future promises
+            # High = delivers more than promises; Low = promises more than delivers
+            # ------------------------------------------------------------------
+            all_future_d = spec_future_d + vague_future_d
+            ppr = past_d / (all_future_d + 1e-8)
+            # Normalize with sigmoid centered at 1.0 (balanced)
+            ppr_normalized = 1.0 / (1.0 + np.exp(-2 * (ppr - 1.0)))
+            progress_promise_ratios.append(ppr_normalized)
+
+            # ------------------------------------------------------------------
+            # Year Mention Density
+            # Count specific year references (2020-2060) — concrete temporal anchors
+            # ------------------------------------------------------------------
+            year_mentions = len(re.findall(
+                r'\b(19|20)\d{2}\b', text
+            ))
+            year_density = year_mentions / total_words
+            year_densities.append(year_density)
+
+            # ------------------------------------------------------------------
+            # Temporal Greenwashing Signal (Composite)
+            # High vague future + low past achievement + low specificity = greenwashing
+            # Formula: 0.35*(1-TSR) + 0.30*(1-PPR_norm) + 0.20*vague_future_d*100
+            #          + 0.15*(1-temporal_balance)
+            # ------------------------------------------------------------------
+            temporal_gw = (
+                0.35 * (1.0 - tsr)
+                + 0.30 * (1.0 - ppr_normalized)
+                + 0.20 * min(vague_future_d * 100, 1.0)
+                + 0.15 * (1.0 - temp_entropy / 2.0)
+            )
+            temporal_gw_signals.append(temporal_gw)
+
+        # Assign all features to dataframe
+        df['past_achievement_density'] = past_densities
+        df['present_action_density'] = present_densities
+        df['specific_future_density'] = specific_future_densities
+        df['vague_future_density'] = vague_future_densities
+        df['temporal_balance_score'] = temporal_balances
+        df['commitment_credibility_score'] = credibility_scores
+        df['temporal_specificity_ratio'] = specificity_ratios
+        df['progress_to_promise_ratio'] = progress_promise_ratios
+        df['year_mention_density'] = year_densities
+        df['temporal_greenwashing_signal'] = temporal_gw_signals
+
+        # Register features
+        self.feature_registry['temporal_linguistic'] = {
+            'count': 10,
+            'features': [
+                'past_achievement_density', 'present_action_density',
+                'specific_future_density', 'vague_future_density',
+                'temporal_balance_score', 'commitment_credibility_score',
+                'temporal_specificity_ratio', 'progress_to_promise_ratio',
+                'year_mention_density', 'temporal_greenwashing_signal'
+            ]
+        }
+
+        return df
+
+    # ========================================================================
+    # CATEGORY 10: CROSS-FEATURE AGGREGATE ESG SCORE
+    # ========================================================================
+
+    def extract_aggregate_esg_score_features(self, df, text_column='description'):  # noqa: ARG002
+        """
+        Create cross-feature interaction terms and a novel aggregate ESG
+        credibility index that synthesizes signals from ALL previous categories.
+
+        Rationale:
+            Individual NLP features capture isolated signals. But greenwashing
+            is a MULTI-DIMENSIONAL phenomenon — it manifests simultaneously
+            across sentiment, readability, policy alignment, temporal patterns,
+            and narrative intent. This category creates interaction features
+            and a composite score that SHAP can decompose to explain exactly
+            WHICH dimensions drive a company's greenwashing risk.
+
+        Mathematical Framework:
+            ESG Linguistic Credibility Index (ELCI):
+                ELCI = w1*S + w2*P + w3*T + w4*N + w5*R + w6*(1-GW)
+
+                Where:
+                    S = policy_specificity_score (Category 7)
+                    P = regulatory_readiness_score (Category 7)
+                    T = commitment_credibility_score (Category 9)
+                    N = narrative_credibility_index (Category 8)
+                    R = concrete_evidence_density (Category 5), normalized
+                    GW = greenwashing_signal_score (Category 5)
+
+                Weights: w1=0.20, w2=0.20, w3=0.20, w4=0.15, w5=0.15, w6=0.10
+                Range: [0, 1], where 1 = maximum linguistic credibility
+
+            SHAP Interaction Features:
+                - policy_x_sentiment: policy alignment * text polarity
+                - readability_x_greenwashing: complexity * GW signal
+                - temporal_x_policy: temporal credibility * policy readiness
+                These multiplicative interactions create non-linear decision
+                boundaries that tree-based models (GB, XGBoost) exploit well.
+
+        Features Created (12):
+            - policy_sentiment_interaction   : Policy alignment * sentiment polarity
+            - readability_greenwashing_interaction : Complexity * GW signal
+            - temporal_policy_interaction    : Temporal credibility * policy readiness
+            - vocabulary_intent_interaction  : Lexical diversity * factual intent
+            - evidence_readability_interaction : Concrete evidence * reading ease
+            - claim_credibility_ratio        : Concrete claims / (vague + hedge + promo)
+            - multi_signal_greenwashing_score : Ensemble of all GW signals
+            - esg_linguistic_credibility_index : Master composite score (ELCI)
+            - credibility_confidence_interval : Uncertainty estimate of ELCI
+            - policy_temporal_alignment      : Do policy refs match temporal commitments?
+            - narrative_consistency_score     : Consistency across all NLP dimensions
+            - aggregate_esg_nlp_score        : Final 0-100 aggregate ESG NLP score
+        """
+
+        print("    [10/10] Computing cross-feature aggregate ESG score...")
+
+        # Initialize storage for all 12 features
+        policy_sentiment_interactions = []
+        readability_gw_interactions = []
+        temporal_policy_interactions = []
+        vocab_intent_interactions = []
+        evidence_readability_interactions = []
+        claim_credibility_ratios = []
+        multi_signal_gw_scores = []
+        elci_scores = []
+        confidence_intervals = []
+        policy_temporal_alignments = []
+        narrative_consistencies = []
+        aggregate_scores = []
+
+        for idx, row in df.iterrows():
+            # Safely retrieve features from prior categories with defaults
+            def safe_get(col, default=0.0):
+                val = row.get(col, default)
+                if pd.isna(val):
+                    return default
+                return float(val)
+
+            # ------------------------------------------------------------------
+            # Retrieve prior category features
+            # ------------------------------------------------------------------
+            # Category 1: Sentiment
+            polarity = safe_get('text_polarity')
+
+            # Category 2: Readability
+            flesch = safe_get('flesch_reading_ease')
+
+            # Category 3: Vocabulary
+            lexical_div = safe_get('lexical_diversity')
+
+            # Category 5: Greenwashing signals
+            gw_score = safe_get('greenwashing_signal_score', 0.5)
+            concrete_density = safe_get('concrete_evidence_density')
+            vague_density = safe_get('vague_language_density')
+            hedge_density = safe_get('hedge_language_density')
+
+            # Category 7: Policy
+            policy_specificity = safe_get('policy_specificity_score')
+            reg_readiness = safe_get('regulatory_readiness_score')
+            policy_gap = safe_get('policy_esg_gap', 0.5)
+            total_policy = safe_get('total_policy_density')
+
+            # Category 8: News intent
+            narrative_cred = safe_get('narrative_credibility_index', 0.5)
+            promo_dominance = safe_get('promotional_dominance_score')
+            factual_density = safe_get('factual_intent_density')
+            news_gw = safe_get('news_greenwashing_signal', 0.5)
+
+            # Category 9: Temporal
+            commit_cred = safe_get('commitment_credibility_score', 0.5)
+            temporal_gw = safe_get('temporal_greenwashing_signal', 0.5)
+            ppr = safe_get('progress_to_promise_ratio', 0.5)
+
+            # ------------------------------------------------------------------
+            # SHAP Interaction Feature 1: Policy * Sentiment
+            # If company is positive AND policy-aligned → credible
+            # If company is positive but NOT policy-aligned → greenwashing
+            # ------------------------------------------------------------------
+            policy_sent = policy_specificity * max(polarity, 0)
+            policy_sentiment_interactions.append(policy_sent)
+
+            # ------------------------------------------------------------------
+            # SHAP Interaction Feature 2: Readability * Greenwashing
+            # Complex text (low Flesch) combined with high GW signal = obfuscation
+            # ------------------------------------------------------------------
+            # Normalize Flesch to [0, 1] where 0=very hard, 1=very easy
+            flesch_norm = max(min(flesch / 100.0, 1.0), 0.0)
+            read_gw = (1.0 - flesch_norm) * gw_score
+            readability_gw_interactions.append(read_gw)
+
+            # ------------------------------------------------------------------
+            # SHAP Interaction Feature 3: Temporal * Policy
+            # Specific future targets + policy grounding = credible transition plan
+            # ------------------------------------------------------------------
+            temp_policy = commit_cred * reg_readiness
+            temporal_policy_interactions.append(temp_policy)
+
+            # ------------------------------------------------------------------
+            # SHAP Interaction Feature 4: Vocabulary * Intent
+            # Rich vocabulary + factual intent = substantive communication
+            # ------------------------------------------------------------------
+            vocab_intent = lexical_div * min(factual_density * 100, 1.0)
+            vocab_intent_interactions.append(vocab_intent)
+
+            # ------------------------------------------------------------------
+            # SHAP Interaction Feature 5: Evidence * Readability
+            # Concrete evidence in readable text = transparent communication
+            # ------------------------------------------------------------------
+            evidence_read = min(concrete_density * 100, 1.0) * flesch_norm
+            evidence_readability_interactions.append(evidence_read)
+
+            # ------------------------------------------------------------------
+            # Claim Credibility Ratio
+            # Concrete claims / (vague + hedge + promotional)
+            # ------------------------------------------------------------------
+            credible_signals = concrete_density + total_policy
+            incredible_signals = vague_density + hedge_density + promo_dominance * 0.01
+            ccr = credible_signals / (incredible_signals + 1e-8)
+            # Normalize with sigmoid
+            ccr_norm = 1.0 / (1.0 + np.exp(-5 * (ccr - 1.0)))
+            claim_credibility_ratios.append(ccr_norm)
+
+            # ------------------------------------------------------------------
+            # Multi-Signal Greenwashing Score
+            # Ensemble of all 3 greenwashing signals (Cat 5, 8, 9)
+            # Weighted average with policy gap as bonus signal
+            # ------------------------------------------------------------------
+            multi_gw = (
+                0.30 * gw_score                                  # Linguistic GW (Cat 5)
+                + 0.25 * news_gw                                 # News intent GW (Cat 8)
+                + 0.25 * temporal_gw                             # Temporal GW (Cat 9)
+                + 0.20 * policy_gap                              # Policy-ESG gap (Cat 7)
+            )
+            multi_signal_gw_scores.append(multi_gw)
+
+            # ------------------------------------------------------------------
+            # ESG Linguistic Credibility Index (ELCI) — THE MASTER SCORE
+            # Synthesizes positive signals into a single credibility measure
+            # ------------------------------------------------------------------
+            elci = (
+                0.20 * policy_specificity                        # Policy grounding
+                + 0.20 * reg_readiness                           # Regulatory preparedness
+                + 0.20 * commit_cred                             # Temporal credibility
+                + 0.15 * narrative_cred                          # Narrative substance
+                + 0.15 * min(concrete_density * 100, 1.0)       # Evidence density
+                + 0.10 * (1.0 - gw_score)                       # Inverse GW signal
+            )
+            elci_scores.append(elci)
+
+            # ------------------------------------------------------------------
+            # Credibility Confidence Interval
+            # Measures agreement across sub-scores — high variance = uncertain
+            # ------------------------------------------------------------------
+            sub_scores = [
+                policy_specificity, reg_readiness, commit_cred,
+                narrative_cred, min(concrete_density * 100, 1.0),
+                1.0 - gw_score
+            ]
+            confidence = 1.0 - min(np.std(sub_scores) * 2, 1.0)
+            confidence_intervals.append(confidence)
+
+            # ------------------------------------------------------------------
+            # Policy-Temporal Alignment
+            # Does the company's policy framework engagement match its
+            # temporal commitment pattern? Both high = genuine transition plan
+            # ------------------------------------------------------------------
+            pta = (reg_readiness + commit_cred) / 2.0
+            policy_temporal_alignments.append(pta)
+
+            # ------------------------------------------------------------------
+            # Narrative Consistency Score
+            # Measures whether ALL NLP dimensions tell the same story
+            # Low consistency = mixed signals (possible greenwashing)
+            # ------------------------------------------------------------------
+            # Collect normalized signals: higher = more credible
+            credibility_signals = [
+                1.0 - gw_score,                                  # Low GW signal
+                narrative_cred,                                  # High narrative credibility
+                commit_cred,                                     # High temporal credibility
+                policy_specificity,                              # High policy alignment
+                1.0 - promo_dominance,                          # Low promotional dominance
+                ppr                                              # High progress/promise
+            ]
+            signal_mean = np.mean(credibility_signals)
+            signal_std = np.std(credibility_signals)
+            narrative_cons = signal_mean * (1.0 - min(signal_std, 1.0))
+            narrative_consistencies.append(narrative_cons)
+
+            # ------------------------------------------------------------------
+            # AGGREGATE ESG NLP SCORE (0-100)
+            # Final composite score combining credibility and risk
+            # Formula: 100 * (0.5 * ELCI + 0.3 * (1-multi_GW) + 0.2 * consistency)
+            # 100 = perfect ESG linguistic credibility
+            # 0 = maximum greenwashing risk
+            # ------------------------------------------------------------------
+            aggregate = 100.0 * (
+                0.50 * elci
+                + 0.30 * (1.0 - multi_gw)
+                + 0.20 * narrative_cons
+            )
+            aggregate = max(0.0, min(100.0, aggregate))          # Clamp to [0, 100]
+            aggregate_scores.append(aggregate)
+
+        # Assign all features to dataframe
+        df['policy_sentiment_interaction'] = policy_sentiment_interactions
+        df['readability_greenwashing_interaction'] = readability_gw_interactions
+        df['temporal_policy_interaction'] = temporal_policy_interactions
+        df['vocabulary_intent_interaction'] = vocab_intent_interactions
+        df['evidence_readability_interaction'] = evidence_readability_interactions
+        df['claim_credibility_ratio'] = claim_credibility_ratios
+        df['multi_signal_greenwashing_score'] = multi_signal_gw_scores
+        df['esg_linguistic_credibility_index'] = elci_scores
+        df['credibility_confidence_interval'] = confidence_intervals
+        df['policy_temporal_alignment'] = policy_temporal_alignments
+        df['narrative_consistency_score'] = narrative_consistencies
+        df['aggregate_esg_nlp_score'] = aggregate_scores
+
+        # Register features
+        self.feature_registry['aggregate_esg_score'] = {
+            'count': 12,
+            'features': [
+                'policy_sentiment_interaction',
+                'readability_greenwashing_interaction',
+                'temporal_policy_interaction',
+                'vocabulary_intent_interaction',
+                'evidence_readability_interaction',
+                'claim_credibility_ratio',
+                'multi_signal_greenwashing_score',
+                'esg_linguistic_credibility_index',
+                'credibility_confidence_interval',
+                'policy_temporal_alignment',
+                'narrative_consistency_score',
+                'aggregate_esg_nlp_score'
+            ]
+        }
+
+        return df
+
+    # ========================================================================
     # MASTER EXECUTION METHOD
     # ========================================================================
 
     def engineer_all_nlp_features(self, df, text_column='description'):
         """
-        Execute the complete NLP feature engineering pipeline.
+        Execute the complete NLP feature engineering pipeline (ENHANCED).
 
-        Chains all 6 NLP feature categories in sequence to extract
+        Chains all 10 NLP feature categories in sequence to extract
         a comprehensive text-based feature matrix from company descriptions.
 
         Pipeline Order:
-            1. Sentiment Features       → 5 features
-            2. Readability Features     → 6 features
-            3. Vocabulary Features      → 6 features
-            4. ESG Keyword Features     → 10 features
-            5. Greenwashing Linguistic  → 12 features (MOST IMPORTANT)
-            6. Document Structure       → 8 features
+            1. Sentiment Features            → 5 features
+            2. Readability Features          → 6 features
+            3. Vocabulary Features           → 6 features
+            4. ESG Keyword Features          → 10 features
+            5. Greenwashing Linguistic       → 12 features
+            6. Document Structure            → 8 features
+            7. Government Policy Compliance  → 12 features  (NEW)
+            8. News Intent & Narrative       → 10 features  (NEW)
+            9. Temporal Linguistic Signals   → 10 features  (NEW)
+           10. Cross-Feature Aggregate Score → 12 features  (NEW)
+
+        IMPORTANT: Categories 7-9 are independent and can run in any order.
+        Category 10 MUST run last as it synthesizes features from all others.
 
         Parameters:
             df          : pd.DataFrame — company data with text descriptions
             text_column : str — column containing text (default: 'description')
 
         Returns:
-            pd.DataFrame — with all 47 NLP features added
+            pd.DataFrame — with all 91 NLP features added
         """
 
         # Print pipeline header
-        print("\n" + "=" * 70)                                    # Visual separator
-        print("  NLP FEATURE ENGINEERING PIPELINE")               # Pipeline title
-        print("=" * 70)                                           # Visual separator
+        print("\n" + "=" * 70)
+        print("  NLP FEATURE ENGINEERING PIPELINE (ENHANCED)")
+        print("  10 Categories | 91 Features | Policy + News + Temporal + Aggregate")
+        print("=" * 70)
 
-        # Execute each feature extraction step in sequence
+        # Phase 1: Core NLP features (Categories 1-6, original pipeline)
         df = self.extract_sentiment_features(df, text_column)     # Step 1: Sentiment (5)
         df = self.extract_readability_features(df, text_column)   # Step 2: Readability (6)
         df = self.extract_vocabulary_features(df, text_column)    # Step 3: Vocabulary (6)
@@ -976,16 +2022,31 @@ class NLPFeatureEngineer:
         df = self.extract_document_structure_features(            # Step 6: Doc structure (8)
             df, text_column)
 
-        # Print summary report
-        total_features = sum(                                     # Count total features
-            info['count'] for info in self.feature_registry.values()  # Sum per category
-        )
-        print(f"\n    TOTAL NLP FEATURES ENGINEERED: {total_features}")  # Print total
-        for category, info in self.feature_registry.items():      # Per-category summary
-            print(f"      - {category}: {info['count']} features")  # Category count
-        print("=" * 70)                                           # Visual separator
+        # Phase 2: Advanced features (Categories 7-9, independent of each other)
+        df = self.extract_government_policy_features(             # Step 7: Gov policy (12)
+            df, text_column)
+        df = self.extract_news_intent_features(                   # Step 8: News intent (10)
+            df, text_column)
+        df = self.extract_temporal_linguistic_features(           # Step 9: Temporal (10)
+            df, text_column)
 
-        return df                                                 # Return fully enriched df
+        # Phase 3: Aggregate score (Category 10, depends on ALL prior categories)
+        df = self.extract_aggregate_esg_score_features(           # Step 10: Aggregate (12)
+            df, text_column)
+
+        # Print summary report
+        total_features = sum(
+            info['count'] for info in self.feature_registry.values()
+        )
+        print(f"\n    TOTAL NLP FEATURES ENGINEERED: {total_features}")
+        print("    " + "-" * 50)
+        for category, info in self.feature_registry.items():
+            print(f"      {category:.<35s} {info['count']:>3d} features")
+        print("    " + "-" * 50)
+        print(f"    {'TOTAL':.<35s} {total_features:>3d} features")
+        print("=" * 70)
+
+        return df
 
 
 # ============================================================================
@@ -995,41 +2056,67 @@ class NLPFeatureEngineer:
 if __name__ == "__main__":                                        # Only run if executed directly
 
     # Print script header
-    print("=" * 70)                                               # Visual separator
-    print("  NLP FEATURE ENGINEERING - STANDALONE TEST")          # Script title
-    print("=" * 70)                                               # Visual separator
+    print("=" * 70)
+    print("  NLP FEATURE ENGINEERING - STANDALONE TEST (ENHANCED)")
+    print("  91 Features | 10 Categories | Gov Policy + News + Temporal + Aggregate")
+    print("=" * 70)
 
     # Load company profiles data
-    DATA_PATH = "data/processed/company_profiles.csv"             # Input file path
-    print(f"\n  Loading data from: {DATA_PATH}")                  # Log path
-    df = pd.read_csv(DATA_PATH)                                   # Read CSV
-    print(f"  Initial shape: {df.shape}")                         # Print dimensions
+    DATA_PATH = "data/processed/company_profiles.csv"
+    print(f"\n  Loading data from: {DATA_PATH}")
+    df = pd.read_csv(DATA_PATH)
+    print(f"  Initial shape: {df.shape}")
 
     # Initialize and run NLP feature engineer
-    nlp_engineer = NLPFeatureEngineer()                            # Create instance
-    df_nlp = nlp_engineer.engineer_all_nlp_features(df)           # Run full pipeline
+    nlp_engineer = NLPFeatureEngineer()
+    df_nlp = nlp_engineer.engineer_all_nlp_features(df)
 
     # Display results
-    print(f"\n  Final shape: {df_nlp.shape}")                     # Print final dimensions
-    print(f"  NLP features added: {df_nlp.shape[1] - 13}")       # Count new columns
+    print(f"\n  Final shape: {df_nlp.shape}")
+    print(f"  NLP features added: {df_nlp.shape[1] - 13}")
 
-    # Show sample of key NLP features
-    key_nlp = [                                                   # Key features to display
-        'company_name',                                           # Identifier
-        'text_polarity',                                          # Sentiment direction
-        'flesch_reading_ease',                                    # Readability
-        'lexical_diversity',                                      # Vocabulary richness
-        'total_esg_keyword_density',                              # ESG keyword density
-        'greenwashing_signal_score',                              # GW linguistic signal
-        'vague_to_concrete_ratio'                                 # Vague vs concrete
+    # Show sample of ORIGINAL key NLP features
+    key_original = [
+        'company_name',
+        'text_polarity',
+        'flesch_reading_ease',
+        'lexical_diversity',
+        'total_esg_keyword_density',
+        'greenwashing_signal_score',
+        'vague_to_concrete_ratio'
     ]
-    key_nlp = [c for c in key_nlp if c in df_nlp.columns]        # Filter existing
+    key_original = [c for c in key_original if c in df_nlp.columns]
+    print(f"\n  Original NLP features (top 5):")
+    print(df_nlp[key_original].head(5).to_string())
 
-    print(f"\n  Sample of key NLP features (top 10):")            # Header
-    print(df_nlp[key_nlp].head(10).to_string())                  # Print sample
+    # Show sample of NEW enhanced features
+    key_new = [
+        'company_name',
+        'regulatory_readiness_score',                             # Gov policy (Cat 7)
+        'policy_esg_gap',                                         # Gov policy gap (Cat 7)
+        'narrative_credibility_index',                            # News intent (Cat 8)
+        'news_greenwashing_signal',                               # News GW signal (Cat 8)
+        'commitment_credibility_score',                           # Temporal (Cat 9)
+        'temporal_greenwashing_signal',                           # Temporal GW (Cat 9)
+        'esg_linguistic_credibility_index',                       # Aggregate ELCI (Cat 10)
+        'multi_signal_greenwashing_score',                        # Multi-signal GW (Cat 10)
+        'aggregate_esg_nlp_score'                                 # Final 0-100 score (Cat 10)
+    ]
+    key_new = [c for c in key_new if c in df_nlp.columns]
+    print(f"\n  NEW Enhanced features (top 5):")
+    print(df_nlp[key_new].head(5).to_string())
+
+    # Print feature category summary
+    print("\n  Feature Category Breakdown:")
+    print("  " + "-" * 55)
+    for category, info in nlp_engineer.feature_registry.items():
+        print(f"    {category:.<40s} {info['count']:>3d} features")
+    total = sum(v['count'] for v in nlp_engineer.feature_registry.values())
+    print("  " + "-" * 55)
+    print(f"    {'TOTAL':.<40s} {total:>3d} features")
 
     # Save NLP features
-    OUTPUT_PATH = "data/processed/nlp_features.csv"               # Output path
-    df_nlp.to_csv(OUTPUT_PATH, index=False)                       # Save to CSV
-    print(f"\n  Saved NLP features to: {OUTPUT_PATH}")            # Confirm
-    print("=" * 70)                                               # Visual separator
+    OUTPUT_PATH = "data/processed/nlp_features.csv"
+    df_nlp.to_csv(OUTPUT_PATH, index=False)
+    print(f"\n  Saved NLP features to: {OUTPUT_PATH}")
+    print("=" * 70)
