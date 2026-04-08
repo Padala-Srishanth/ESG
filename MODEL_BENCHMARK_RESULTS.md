@@ -14,19 +14,36 @@
 
 | # | Model | Type | Training time (s) |
 |---|-------|------|---|
-| 1 | Logistic Regression | Linear | 0.02 |
+| 1 | Logistic Regression | Linear | 0.01 |
 | 2 | SVM (RBF) | Kernel SVM | 0.02 |
 | 3 | KNN (k=5) | Instance-based | 0.00 |
 | 4 | Decision Tree | Tree | 0.01 |
-| 5 | Random Forest | Bagging ensemble | 0.19 |
-| 6 | Gradient Boosting | Boosting ensemble | 1.42 |
-| 7 | XGBoost | Boosting ensemble | 1.97 |
-| 8 | CatBoost | Boosting ensemble | 1.97 |
+| 5 | Random Forest | Bagging ensemble | 0.18 |
+| 6 | Gradient Boosting | Boosting ensemble | 1.37 |
+| 7 | XGBoost | Boosting ensemble | 2.02 |
+| 8 | CatBoost | Boosting ensemble | 2.56 |
 | 9 | Hybrid XGB-CatBoost (opt) | Optimized blend (alpha=0.20) | - |
 | 10 | Hybrid XGB-CatBoost (50/50) | Equal blend | - |
 | 11 | Voting (RF+XGB+Cat) | Soft voting ensemble | - |
 
-## Training Set Results (n = 288)
+## Training Set: 5-Fold Cross-Validation Scores
+
+Plain training-set metrics are saturated (~1.0000) for tree models because they memorize the 288 samples. The 5-fold CV scores below are computed by training on 4/5 of the training data and validating on the held-out fold, repeated 5 times. This is the **true generalization estimate during training**, computed entirely within the training set (no leakage from val or test).
+
+| Rank | Model | CV Accuracy (mean ± std) | CV F1 (mean ± std) | CV ROC-AUC (mean ± std) |
+|------|-------|--------------------------|--------------------|-------------------------|
+| 1 | CatBoost | 0.9619 ± 0.0275 | 0.9305 ± 0.0522 | 0.9944 ± 0.0098 |
+| 2 | XGBoost | 0.9619 ± 0.0275 | 0.9305 ± 0.0522 | 0.9941 ± 0.0071 |
+| 3 | Random Forest | 0.9411 ± 0.0319 | 0.8936 ± 0.0655 | 0.9792 ± 0.0215 |
+| 4 | SVM (RBF) | 0.8857 ± 0.0412 | 0.7877 ± 0.0923 | 0.9543 ± 0.0248 |
+| 5 | Logistic Regression | 0.8786 ± 0.0303 | 0.8065 ± 0.0468 | 0.9483 ± 0.0252 |
+| 6 | Gradient Boosting | 0.9446 ± 0.0480 | 0.9001 ± 0.0879 | 0.9420 ± 0.0658 |
+| 7 | Decision Tree | 0.9135 ± 0.0447 | 0.8557 ± 0.0749 | 0.9013 ± 0.0641 |
+| 8 | KNN (k=5) | 0.8541 ± 0.0359 | 0.7177 ± 0.0918 | 0.9005 ± 0.0290 |
+
+## Training Set Results -- Full Fit (memorization) (n = 288)
+
+*Note: tree-based ensembles reach 1.0000 because they perfectly memorize the 288 training samples. The 5-fold CV scores above are the meaningful training metric for these models.*
 
 | Rank | Model | Accuracy | Bal Acc | Precision | Recall | F1 | ROC-AUC | Log Loss | MCC |
 |------|-------|---------|---------|-----------|--------|-----|---------|---------|-----|

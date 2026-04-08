@@ -51,13 +51,45 @@ def main():
         report.append(f'| {i} | {model} | {type_str} | {t_str} |')
     report.append('')
 
-    # Per-split tables
+    # === 5-fold CV training scores (most meaningful train metric) ===
+    cv_results = meta.get('cv_results', {})
+    if cv_results:
+        report.append('## Training Set: 5-Fold Cross-Validation Scores')
+        report.append('')
+        report.append('Plain training-set metrics are saturated (~1.0000) for tree models because they '
+                      'memorize the 288 samples. The 5-fold CV scores below are computed by training on '
+                      '4/5 of the training data and validating on the held-out fold, repeated 5 times. '
+                      'This is the **true generalization estimate during training**, computed entirely '
+                      'within the training set (no leakage from val or test).')
+        report.append('')
+        report.append('| Rank | Model | CV Accuracy (mean ± std) | CV F1 (mean ± std) | CV ROC-AUC (mean ± std) |')
+        report.append('|------|-------|--------------------------|--------------------|-------------------------|')
+        cv_sorted = sorted(cv_results.items(), key=lambda kv: -kv[1]['cv_roc_auc_mean'])
+        for rank, (name, r) in enumerate(cv_sorted, 1):
+            report.append(
+                f'| {rank} | {name} | '
+                f'{r["cv_accuracy_mean"]:.4f} ± {r["cv_accuracy_std"]:.4f} | '
+                f'{r["cv_f1_mean"]:.4f} ± {r["cv_f1_std"]:.4f} | '
+                f'{r["cv_roc_auc_mean"]:.4f} ± {r["cv_roc_auc_std"]:.4f} |'
+            )
+        report.append('')
+
+    # Per-split tables (full train, val, test)
     for split_name in ['train', 'val', 'test']:
-        title = {'train': 'Training Set', 'val': 'Validation Set', 'test': 'Test Set'}[split_name]
+        title = {
+            'train': 'Training Set Results -- Full Fit (memorization)',
+            'val': 'Validation Set Results',
+            'test': 'Test Set Results',
+        }[split_name]
         sub = df[df['split'] == split_name].sort_values('roc_auc', ascending=False)
         n = int(sub['n_samples'].iloc[0])
-        report.append(f'## {title} Results (n = {n})')
+        report.append(f'## {title} (n = {n})')
         report.append('')
+        if split_name == 'train':
+            report.append('*Note: tree-based ensembles reach 1.0000 because they perfectly memorize the '
+                          '288 training samples. The 5-fold CV scores above are the meaningful training '
+                          'metric for these models.*')
+            report.append('')
         report.append('| Rank | Model | Accuracy | Bal Acc | Precision | Recall | F1 | ROC-AUC | Log Loss | MCC |')
         report.append('|------|-------|---------|---------|-----------|--------|-----|---------|---------|-----|')
         for rank, (_, row) in enumerate(sub.iterrows(), 1):
